@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34622.214
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WIFI_PC", "WIFI_PC\WIFI_PC.csproj", "{555025BC-E977-4B65-9F39-55DE1F043663}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{555025BC-E977-4B65-9F39-55DE1F043663}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{555025BC-E977-4B65-9F39-55DE1F043663}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{555025BC-E977-4B65-9F39-55DE1F043663}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{555025BC-E977-4B65-9F39-55DE1F043663}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D172E5FB-69C6-4584-8E1B-7AFCBF7A1F6F}
+	EndGlobalSection
+EndGlobal
