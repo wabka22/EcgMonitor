@@ -188,7 +188,7 @@ class Program
                     string response = reader.ReadLine();
                     if (response?.Contains("OK") == true)
                     {
-                        Log("Стриминг начат. Нажмите любую клавишу для остановки...", "SUCCESS");
+                        Log("Стриминг начат. Нажмите 'Q' для остановки...", "SUCCESS");
                     }
                     else
                     {
@@ -196,22 +196,28 @@ class Program
                     }
 
                     // Чтение данных в реальном времени
-                    while (!Console.KeyAvailable)
+                    while (true)
                     {
+                        if (Console.KeyAvailable)
+                        {
+                            var key = Console.ReadKey(true);
+                            if (key.Key == ConsoleKey.Q || key.Key == ConsoleKey.Escape)
+                            {
+                                break;
+                            }
+                        }
+
                         if (stream.DataAvailable)
                         {
                             string data = reader.ReadLine();
                             if (!string.IsNullOrEmpty(data))
                             {
-                                // Обработка данных (можно добавить парсинг)
+                                // Обработка данных
                                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {data}");
                             }
                         }
                         Thread.Sleep(10);
                     }
-
-                    // Очистка буфера клавиатуры
-                    while (Console.KeyAvailable) Console.ReadKey(true);
 
                     // Отправляем команду остановки
                     byte[] stopBytes = System.Text.Encoding.UTF8.GetBytes("STOP_STREAM\n");
@@ -263,97 +269,194 @@ class Program
         return null;
     }
 
+    // ---------- ОСНОВНОЙ ЦИКЛ ----------
     static void Main()
     {
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
-        Log("=== ESP32 Data Streamer ===", "INFO");
-        Log($"Текущая директория: {Directory.GetCurrentDirectory()}", "INFO");
-
         // Загружаем конфигурацию
         Config config = LoadConfig();
 
-        // Показываем текущую конфигурацию
-        Log($"Конфигурация:", "INFO");
-        Log($"  PC WiFi: {config.PcWifiSsid}", "INFO");
-        Log($"  ESP сеть: {config.EspNetworkName}", "INFO");
-        Log($"  ESP IP: {config.EspApIp}:{config.EspPort}", "INFO");
+        bool running = true;
 
-        Console.WriteLine("\nВыберите действие:");
+        while (running)
+        {
+            Console.Clear();
+            ShowHeader(config);
+
+            string choice = GetMenuChoice();
+
+            switch (choice)
+            {
+                case "1":
+                    ConfigureEsp(config);
+                    break;
+
+                case "2":
+                    StartStreaming(config);
+                    break;
+
+                case "3":
+                    EditConfiguration(config);
+                    break;
+
+                case "4":
+                    DiscoverEsp(config);
+                    break;
+
+                case "5":
+                    ShowCurrentConfig(config);
+                    break;
+
+                case "6":
+                    running = false;
+                    Log("Выход из программы...", "INFO");
+                    break;
+
+                case "h":
+                    ShowHelp();
+                    break;
+
+                default:
+                    Log("Неверный выбор. Нажмите 'h' для помощи.", "ERROR");
+                    WaitForKey();
+                    break;
+            }
+        }
+
+        // Возврат к домашней сети перед выходом
+        Log("Возврат к домашней сети...", "INFO");
+        ConnectToNetwork(config.PcWifiSsid);
+
+        Log("Программа завершена. Нажмите любую клавишу...", "SUCCESS");
+        Console.ReadKey();
+    }
+
+    // ---------- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ----------
+
+    static void ShowHeader(Config config)
+    {
+        Console.ForegroundColor = ConsoleColor.Magenta;
+        Console.WriteLine("╔══════════════════════════════════════════════════╗");
+        Console.WriteLine("║           ESP32 Data Streamer v1.0              ║");
+        Console.WriteLine("╚══════════════════════════════════════════════════╝");
+        Console.ResetColor();
+
+        Console.WriteLine($"Текущая конфигурация:");
+        Console.WriteLine($"  Домашняя WiFi: {config.PcWifiSsid}");
+        Console.WriteLine($"  Сеть ESP: {config.EspNetworkName}");
+        Console.WriteLine($"  IP ESP: {config.EspApIp}:{config.EspPort}");
+        Console.WriteLine(new string('-', 50));
+    }
+
+    static string GetMenuChoice()
+    {
+        Console.WriteLine("\nМеню:");
         Console.WriteLine("1. Настроить ESP на подключение к домашней WiFi");
         Console.WriteLine("2. Начать стриминг данных");
         Console.WriteLine("3. Изменить конфигурацию");
         Console.WriteLine("4. Автоматический поиск ESP");
-        Console.Write("\nВаш выбор (1-4): ");
+        Console.WriteLine("5. Показать текущую конфигурацию");
+        Console.WriteLine("6. Выход");
+        Console.WriteLine("\n[h] Помощь");
 
-        string choice = Console.ReadLine();
+        Console.Write("\nВаш выбор (1-6): ");
+        return Console.ReadLine()?.ToLower().Trim() ?? "";
+    }
 
-        switch (choice)
+    static void WaitForKey(string message = "Нажмите любую клавишу для продолжения...")
+    {
+        Console.WriteLine($"\n{message}");
+        Console.ReadKey(true);
+    }
+
+    static void ShowHelp()
+    {
+        Console.Clear();
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("=== СПРАВКА ===");
+        Console.ResetColor();
+        Console.WriteLine("\nОпции меню:");
+        Console.WriteLine("1. Отправляет данные вашей домашней WiFi на ESP");
+        Console.WriteLine("2. Подключается к ESP и начинает стриминг данных");
+        Console.WriteLine("3. Редактирует настройки подключения");
+        Console.WriteLine("4. Автоматически ищет ESP в локальной сети");
+        Console.WriteLine("5. Показывает текущие настройки");
+        Console.WriteLine("6. Выход из программы");
+        Console.WriteLine("\nВо время стриминга нажмите 'Q' для остановки.");
+        WaitForKey();
+    }
+
+    static void ShowCurrentConfig(Config config)
+    {
+        Console.Clear();
+        Console.WriteLine("=== ТЕКУЩАЯ КОНФИГУРАЦИЯ ===");
+        Console.WriteLine($"SSID домашней WiFi: {config.PcWifiSsid}");
+        Console.WriteLine($"Пароль домашней WiFi: {new string('*', config.PcWifiPassword.Length)}");
+        Console.WriteLine($"Имя сети ESP: {config.EspNetworkName}");
+        Console.WriteLine($"Пароль сети ESP: {new string('*', config.EspNetworkPassword.Length)}");
+        Console.WriteLine($"IP-адрес ESP AP: {config.EspApIp}");
+        Console.WriteLine($"Порт ESP: {config.EspPort}");
+        Console.WriteLine($"Файл конфигурации: {Path.GetFullPath(ConfigFile)}");
+        WaitForKey();
+    }
+
+    static void ConfigureEsp(Config config)
+    {
+        Console.Clear();
+        Log("=== НАСТРОЙКА ESP ===", "INFO");
+
+        bool success = SendWifiCredentialsToEsp(
+            config.EspApIp,
+            config.EspPort,
+            config.PcWifiSsid,
+            config.PcWifiPassword
+        );
+
+        if (success)
         {
-            case "1":
-                // Отправляем данные домашней сети на ESP
-                bool success = SendWifiCredentialsToEsp(
-                    config.EspApIp,
-                    config.EspPort,
-                    config.PcWifiSsid,
-                    config.PcWifiPassword
-                );
+            Log("Ждём 10 секунд, пока ESP применит настройки...", "INFO");
+            Thread.Sleep(10000);
 
-                if (success)
-                {
-                    Log("Ждём 10 секунд, пока ESP применит настройки...", "INFO");
-                    Thread.Sleep(10000);
-                }
-                break;
-
-            case "2":
-                // Начинаем стриминг
-                StreamDataFromEsp(
-                    config.EspApIp,
-                    config.EspPort,
-                    config.EspNetworkName,
-                    config.EspNetworkPassword
-                );
-                break;
-
-            case "3":
-                // Редактирование конфигурации
-                EditConfiguration(config);
-                break;
-
-            case "4":
-                // Автопоиск ESP
-                string? discoveredIp = DiscoverEspInNetwork();
-                if (discoveredIp != null)
-                {
-                    config.EspApIp = discoveredIp;
-                    SaveConfig(config);
-                    Log($"Конфигурация обновлена. Новый IP ESP: {discoveredIp}", "SUCCESS");
-                }
-                break;
-
-            default:
-                Log("Неверный выбор", "ERROR");
-                break;
+            // Возвращаемся к домашней сети
+            Log("Возврат к домашней сети...", "INFO");
+            ConnectToNetwork(config.PcWifiSsid);
         }
 
-        // Возврат к домашней сети
+        WaitForKey();
+    }
+
+    static void StartStreaming(Config config)
+    {
+        Console.Clear();
+        Log("=== ЗАПУСК СТРИМИНГА ===", "INFO");
+
+        StreamDataFromEsp(
+            config.EspApIp,
+            config.EspPort,
+            config.EspNetworkName,
+            config.EspNetworkPassword
+        );
+
+        // Возвращаемся к домашней сети
         Log("Возврат к домашней сети...", "INFO");
         ConnectToNetwork(config.PcWifiSsid);
 
-        Log("Готово. Нажмите любую клавишу для выхода...", "SUCCESS");
-        Console.ReadKey();
+        WaitForKey("Нажмите любую клавишу для возврата в меню...");
     }
 
     static void EditConfiguration(Config config)
     {
-        Console.WriteLine("\n=== Редактирование конфигурации ===");
+        Console.Clear();
+        Console.WriteLine("=== РЕДАКТИРОВАНИЕ КОНФИГУРАЦИИ ===\n");
+
+        Console.WriteLine("Введите новые значения (оставьте пустым, чтобы не менять):");
 
         Console.Write($"SSID домашней WiFi [{config.PcWifiSsid}]: ");
         string input = Console.ReadLine();
         if (!string.IsNullOrEmpty(input)) config.PcWifiSsid = input;
 
-        Console.Write($"Пароль домашней WiFi [{config.PcWifiPassword}]: ");
+        Console.Write($"Пароль домашней WiFi [{new string('*', config.PcWifiPassword.Length)}]: ");
         input = Console.ReadLine();
         if (!string.IsNullOrEmpty(input)) config.PcWifiPassword = input;
 
@@ -361,7 +464,7 @@ class Program
         input = Console.ReadLine();
         if (!string.IsNullOrEmpty(input)) config.EspNetworkName = input;
 
-        Console.Write($"Пароль сети ESP [{config.EspNetworkPassword}]: ");
+        Console.Write($"Пароль сети ESP [{new string('*', config.EspNetworkPassword.Length)}]: ");
         input = Console.ReadLine();
         if (!string.IsNullOrEmpty(input)) config.EspNetworkPassword = input;
 
@@ -378,5 +481,28 @@ class Program
 
         SaveConfig(config);
         Log("Конфигурация сохранена", "SUCCESS");
+        WaitForKey();
+    }
+
+    static void DiscoverEsp(Config config)
+    {
+        Console.Clear();
+        Log("=== АВТОПОИСК ESP ===", "INFO");
+
+        string? discoveredIp = DiscoverEspInNetwork();
+        if (discoveredIp != null)
+        {
+            Console.Write($"Обновить конфигурацию на IP {discoveredIp}? (y/n): ");
+            string answer = Console.ReadLine()?.ToLower() ?? "";
+
+            if (answer == "y" || answer == "yes" || answer == "да")
+            {
+                config.EspApIp = discoveredIp;
+                SaveConfig(config);
+                Log($"Конфигурация обновлена. Новый IP ESP: {discoveredIp}", "SUCCESS");
+            }
+        }
+
+        WaitForKey();
     }
 }
