@@ -1,7 +1,7 @@
 {
   "PcWifiSsid": "MyHomeWiFi",
   "PcWifiPassword": "mypassword122",
-  "EspNetworkName": "karch_eeg_88005553535",
+  "EspNetworkName": "karch_cos_88005553535",
   "EspNetworkPassword": "12345678",
   "EspApIp": "192.168.4.1",
   "EspPort": 8888

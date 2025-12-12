@@ -33,7 +33,7 @@
 //   savedPass = prefs.getString("pass", "");
 
 //   WiFi.mode(WIFI_AP_STA);
-//   WiFi.softAP("karch_eeg_88005553535", "12345678");
+//   WiFi.softAP("karch_sin_88005553535", "12345678");
 
 //   Serial.print("Access Point started. IP: ");
 //   Serial.println(WiFi.softAPIP());
@@ -83,7 +83,7 @@
 
 // void printNetworkStatus(WiFiClient& client) {
 //   client.println("=== ESP32 Network Status ===");
-//   client.print("AP SSID: "); client.println("karch_eeg_88005553535");
+//   client.print("AP SSID: "); client.println("karch_sin_88005553535");
 //   client.print("AP IP: "); client.println(WiFi.softAPIP());
 //   client.print("Connected to external Wi-Fi: ");
 //   client.println(WiFi.status() == WL_CONNECTED ? "YES" : "NO");
