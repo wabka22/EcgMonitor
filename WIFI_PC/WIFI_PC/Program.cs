@@ -328,7 +328,6 @@ class Program
             Log($"Ошибка сохранения конфигурации: {e}", "ERROR");
         }
     }
-
     // ---------- ПОДКЛЮЧЕНИЕ К Wi-Fi ----------
     static bool ConnectToNetwork(string ssid, string? name = null)
     {
@@ -339,35 +338,33 @@ class Program
 
         try
         {
-            // Сначала добавляем профиль если его нет
-            var startInfo = new ProcessStartInfo
+            // Проверяем, есть ли уже этот профиль
+            var checkProfile = new ProcessStartInfo
             {
                 FileName = "netsh",
-                Arguments = $"wlan connect ssid=\"{ssid}\" name=\"{networkName}\"",
+                Arguments = $"wlan show profiles",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
             };
 
-            var process = Process.Start(startInfo);
-            if (process != null)
+            bool profileExists = false;
+            using (var process = Process.Start(checkProfile))
             {
-                process.WaitForExit(10000);
-
-                string output = process.StandardOutput.ReadToEnd();
-                string error = process.StandardError.ReadToEnd();
-
-                if (!string.IsNullOrEmpty(error))
+                if (process != null)
                 {
-                    Log($"Ошибка подключения: {error.Trim()}", "WARN");
+                    string output = process.StandardOutput.ReadToEnd();
+                    profileExists = output.Contains(ssid);
+                }
+            }
 
-                    // Если профиля нет, создаем его
-                    if (error.Contains("не присвоен профиль"))
-                    {
-                        Log($"Создание профиля для сети {ssid}...", "INFO");
+            // Если профиля нет - создаем его
+            if (!profileExists)
+            {
+                Log($"Создание профиля для сети {ssid}...", "INFO");
 
-                        string profileXml = $@"<?xml version=""1.0""?>
+                string profileXml = $@"<?xml version=""1.0""?>
 <WLANProfile xmlns=""http://www.microsoft.com/networking/WLAN/profile/v1"">
     <name>{ssid}</name>
     <SSIDConfig>
@@ -384,30 +381,132 @@ class Program
                 <encryption>AES</encryption>
                 <useOneX>false</useOneX>
             </authEncryption>
+            <sharedKey>
+                <keyType>passPhrase</keyType>
+                <protected>false</protected>
+                <keyMaterial>12345678</keyMaterial>  <!-- Пароль ESP -->
+            </sharedKey>
         </security>
     </MSM>
 </WLANProfile>";
 
-                        string tempFile = Path.GetTempFileName();
-                        File.WriteAllText(tempFile, profileXml);
+                string tempFile = Path.GetTempFileName();
+                File.WriteAllText(tempFile, profileXml);
 
-                        Process.Start("netsh", $"wlan add profile filename=\"{tempFile}\"")?.WaitForExit(5000);
-                        File.Delete(tempFile);
+                var addProfile = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = $"wlan add profile filename=\"{tempFile}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
 
-                        // Пробуем снова подключиться
-                        Process.Start("netsh", $"wlan connect ssid=\"{ssid}\" name=\"{ssid}\"")?.WaitForExit(10000);
+                using (var process = Process.Start(addProfile))
+                {
+                    if (process != null)
+                    {
+                        process.WaitForExit(5000);
+                        Log($"Профиль для {ssid} создан", "INFO");
                     }
                 }
 
-                Thread.Sleep(5000);
-                Log($"Подключение к {ssid} выполнено", "SUCCESS");
-                return true;
+                File.Delete(tempFile);
             }
-            return false;
+
+            // Подключаемся к сети
+            Log($"Подключение к {ssid}...", "INFO");
+
+            var connectProcess = new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = $"wlan connect name=\"{ssid}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+
+            using (var process = Process.Start(connectProcess))
+            {
+                if (process != null)
+                {
+                    process.WaitForExit(10000);
+                    string output = process.StandardOutput.ReadToEnd();
+                    string error = process.StandardError.ReadToEnd();
+
+                    Log($"Результат подключения к {ssid}:", "INFO");
+                    Log($"Output: {output}", "INFO");
+
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        Log($"Error: {error}", "WARN");
+                    }
+                }
+            }
+
+            // Ждем установления соединения
+            Thread.Sleep(8000);
+
+            // Проверяем, подключились ли мы
+            bool connected = CheckWiFiConnection(ssid);
+
+            if (connected)
+            {
+                Log($"Успешно подключились к {ssid}", "SUCCESS");
+            }
+            else
+            {
+                Log($"Не удалось подключиться к {ssid}", "WARN");
+            }
+
+            return connected;
         }
         catch (Exception e)
         {
             Log($"Ошибка подключения к {ssid}: {e}", "ERROR");
+            return false;
+        }
+    }
+
+    // ---------- ПРОВЕРКА ПОДКЛЮЧЕНИЯ К Wi-Fi ----------
+    static bool CheckWiFiConnection(string expectedSsid)
+    {
+        try
+        {
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = "wlan show interfaces",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            // Ищем SSID в выводе
+            bool isConnected = output.Contains("Состояние") && output.Contains("подключено");
+            bool hasCorrectSsid = output.Contains(expectedSsid);
+
+            if (isConnected && hasCorrectSsid)
+            {
+                Log($"Подключены к сети: {expectedSsid}", "INFO");
+                return true;
+            }
+            else if (isConnected)
+            {
+                Log($"Подключены к другой сети", "WARN");
+            }
+
+            return false;
+        }
+        catch
+        {
             return false;
         }
     }
@@ -471,67 +570,76 @@ class Program
         Log("=== ЗАПУСК СТРИМИНГА ===", "INFO");
 
         string espIp = config.EspApIp;
-        bool useHomeIp = false;
+        bool espFound = false;
 
-        // Пробуем использовать сохраненный домашний IP если есть
+        // 1. Проверяем сохраненный домашний IP
         if (!string.IsNullOrEmpty(config.EspHomeIp))
         {
             if (CheckEspAvailability(config.EspHomeIp, config.EspPort, 2000))
             {
                 Log($"ESP доступна по домашнему IP: {config.EspHomeIp}", "SUCCESS");
                 espIp = config.EspHomeIp;
-                useHomeIp = true;
+                espFound = true;
             }
         }
 
-        // Если домашний IP не сработал, пробуем стандартный
-        if (!useHomeIp && !CheckEspAvailability(espIp, config.EspPort, 2000))
+        // 2. Если нет - пробуем AP режим
+        if (!espFound && CheckEspAvailability(espIp, config.EspPort, 2000))
+        {
+            Log($"ESP доступна в AP режиме: {espIp}", "SUCCESS");
+            espFound = true;
+        }
+
+        // 3. Если не нашли - ищем в сети с БЫСТРЫМ ПРЕРЫВАНИЕМ
+        if (!espFound)
         {
             Log($"ESP недоступна по адресу {espIp}:{config.EspPort}", "WARN");
+            Log("Поиск ESP в сети (быстрый режим)...", "INFO");
 
-            // Пытаемся найти ESP в сети
-            Log("Поиск ESP в сети...", "INFO");
-            var foundDevices = DiscoverEspInNetwork();
+            var foundDevices = new List<string>();
 
-            if (foundDevices.Count > 0)
+            // Сначала пробуем активную подсеть
+            string? activeSubnet = GetActiveSubnet();
+            if (!string.IsNullOrEmpty(activeSubnet))
             {
-                if (foundDevices.Count == 1)
+                foundDevices = ScanSubnet(activeSubnet);
+                if (foundDevices.Count > 0)
+                {
+                    espIp = foundDevices[0];
+                    Log($"Найдена ESP в активной подсети: {espIp}", "SUCCESS");
+                    espFound = true;
+                }
+            }
+
+            // Если не нашли - ищем в остальных подсетях ДО ПЕРВОЙ НАЙДЕННОЙ
+            if (!espFound)
+            {
+                foundDevices = DiscoverEspInNetwork(); // с прерыванием после первой найденной
+                if (foundDevices.Count > 0)
                 {
                     espIp = foundDevices[0];
                     Log($"Найдена ESP: {espIp}", "SUCCESS");
-
-                    // Сохраняем найденный IP как домашний
-                    config.EspHomeIp = espIp;
-                    SaveConfig(config);
+                    espFound = true;
                 }
-                else
-                {
-                    Log($"Найдено несколько устройств:", "INFO");
-                    for (int i = 0; i < foundDevices.Count; i++)
-                    {
-                        Console.WriteLine($"{i + 1}. {foundDevices[i]}");
-                    }
+            }
 
-                    Console.Write("Выберите устройство (1-{foundDevices.Count}): ");
-                    if (int.TryParse(Console.ReadLine(), out int choice) && choice > 0 && choice <= foundDevices.Count)
-                    {
-                        espIp = foundDevices[choice - 1];
-                        config.EspHomeIp = espIp;
-                        SaveConfig(config);
-                        Log($"Выбрана ESP: {espIp}", "SUCCESS");
-                    }
-                }
+            if (espFound)
+            {
+                // Сохраняем найденный IP
+                config.EspHomeIp = espIp;
+                SaveConfig(config);
             }
             else
             {
                 // Подключаемся к AP режиму ESP
-                Log("Подключение к AP режиму ESP...", "INFO");
+                Log("ESP не найдена в сети, подключение к AP режиму...", "INFO");
                 if (ConnectToNetwork(config.EspNetworkName, config.EspNetworkName))
                 {
                     Thread.Sleep(5000);
                     espIp = "192.168.4.1";
+                    espFound = CheckEspAvailability(espIp, config.EspPort);
 
-                    if (!CheckEspAvailability(espIp, config.EspPort))
+                    if (!espFound)
                     {
                         Log("Не удалось подключиться к ESP", "ERROR");
                         WaitForKey();
@@ -546,6 +654,7 @@ class Program
                 }
             }
         }
+
 
         try
         {
