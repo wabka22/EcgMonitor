@@ -27,7 +27,6 @@
 1. **Скачайте код**: Сохраните `Program.cs` как файл C#.
 2. **Соберите проект**: Используйте Visual Studio или dotnet CLI.
    ```bash
-   dotnet new console -n Esp32Manager
-   # Замените Program.cs на предоставленный код
    dotnet build
    dotnet run
+```
