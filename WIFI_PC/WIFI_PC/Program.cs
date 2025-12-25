@@ -1793,30 +1793,6 @@ class Program
 
     // ---------- ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ----------
 
-    // Получение текущей подсети
-    static string GetCurrentSubnet()
-    {
-        try
-        {
-            var host = Dns.GetHostEntry(Dns.GetHostName());
-            foreach (var ip in host.AddressList)
-            {
-                if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                {
-                    string ipString = ip.ToString();
-                    int lastDot = ipString.LastIndexOf('.');
-                    if (lastDot > 0)
-                    {
-                        return ipString.Substring(0, lastDot + 1);
-                    }
-                }
-            }
-        }
-        catch { }
-        return "192.168.137."; // Возвращаем подсеть по умолчанию из ваших данных
-    }
-
-    // Поиск IP по MAC-адресу в ARP-таблице
     static string FindIpByMacAddress(string macAddress)
     {
         try
