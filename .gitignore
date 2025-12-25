@@ -1,3 +1,8 @@
+# Создать резервную копию старого .gitignore
+cp .gitignore .gitignore.backup
+
+# Создать новый .gitignore
+cat > .gitignore << 'EOF'
 # ==========================
 # Visual Studio
 # ==========================
@@ -7,18 +12,28 @@
 *.vcxproj.user
 *.db
 *.opendb
+.vscode/
+.idea/
 
 # ==========================
-# Сборка
+# Сборка C#/.NET
 # ==========================
-**/bin/
-**/obj/
+**/[Bb]in/
+**/[Oo]bj/
 *.dll
 *.exe
 *.pdb
 *.so
 *.dylib
 *.app
+*.cache
+*.config
+
+# ==========================
+# Сборка PlatformIO/ESP32
+# ==========================
+firmware/.pio/
+firmware/build/
 
 # ==========================
 # NuGet
@@ -32,24 +47,9 @@ project.assets.json
 # Логи и временные файлы
 # ==========================
 *.log
-*.cache
 *.bak
 *.tmp
-*.config
-
-# ==========================
-# IDE (JetBrains / Rider)
-# ==========================
-.idea/
-*.iml
-
-# ==========================
-# Тестовые результаты
-# ==========================
-TestResults/
-*.trx
-*.coverage
-.coverage/
+*.swp
 
 # ==========================
 # Файлы ОС
@@ -57,3 +57,9 @@ TestResults/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ==========================
+# Конфигурационные файлы
+# ==========================
+config_*.json
+EOF
