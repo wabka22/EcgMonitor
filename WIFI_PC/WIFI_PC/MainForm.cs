@@ -53,15 +53,13 @@ namespace ESP32StreamManager
         private LineSeries sinSeries;
         private LineSeries cosSeries;
         private DateTime _plotStartTime;
-        private double _timeWindow = 30.0; // Окно времени в секундах
+        private double _timeWindow = 30.0;
 
-        // Для безопасного логирования до создания Handle
         private List<string> _pendingLogs = new List<string>();
         private bool _isFormLoaded = false;
 
         public MainForm()
         {
-            // Регистрируем провайдер кодировок для работы с netsh
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             InitializeComponent();
@@ -204,9 +202,6 @@ namespace ESP32StreamManager
             btnClearPlots = CreateButton("Очистить графики", 10, 355);
             btnClearPlots.Click += (s, e) => ClearPlots();
             btnClearPlots.BackColor = Color.FromArgb(80, 80, 0);
-
-            btnExit = CreateButton("Выход", 10, 425);
-            btnExit.Click += (s, e) => Application.Exit();
 
             controlPanel.Controls.AddRange(new Control[] {
                 lblSingle, btnConnectSingle, btnStreamSingle, btnStopSingle, btnFindESP,
@@ -676,48 +671,58 @@ namespace ESP32StreamManager
             {
                 if (!_isFormLoaded) return;
 
-                // Удаляем квадратные скобки и пробелы, оставляем только число
-                string cleanData = data.Replace("[", "").Replace("]", "").Trim();
+                // Упрощенный парсинг - ищем последнее числовое значение в строке
+                string[] parts = data.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-                // Ищем числовое значение
-                string[] parts = cleanData.Split(new char[] { ' ', '\t', ':', ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
-
+                // Ищем последний элемент, который можно распарсить как double
                 double value = 0;
                 bool parsed = false;
 
-                // Ищем числовую часть в данных
-                foreach (string part in parts)
+                for (int i = parts.Length - 1; i >= 0; i--)
                 {
-                    if (double.TryParse(part, System.Globalization.NumberStyles.Float,
+                    // Убираем возможные символы форматирования
+                    string cleanPart = parts[i].TrimEnd(']', ')', '}', '>');
+                    cleanPart = cleanPart.TrimStart('[', '(', '{', '<');
+
+                    if (double.TryParse(cleanPart, System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out value))
                     {
                         parsed = true;
 
-                        // Преобразуем значения из диапазона примерно 0-200 в -1.5..1.5
-                        // Если значение в диапазоне 0-200, нормализуем
-                        if (value > 100)
+                        // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: данные ESP32 обычно в диапазоне 0-200
+                        // Если значение не в этом диапазоне, пропускаем его
+                        if (value < 0 || value > 250)
                         {
-                            // Центрируем вокруг 0 и масштабируем
-                            value = (value - 100) / 100.0 * 1.5;
+                            Log($"Пропущено неверное значение: {value}", "WARN", deviceName);
+                            return;
                         }
+
                         break;
                     }
                 }
 
                 if (parsed)
                 {
+                    // Преобразуем значения из диапазона 0-200 в -1.5..1.5
+                    // ESP32 отправляет синусоиду в диапазоне 0-200
+                    // Центр = 100, амплитуда = 100
+                    double normalizedValue = (value - 100) / 100.0 * 1.5;
+
                     // Используем время относительно начала графика
                     TimeSpan elapsed = DateTime.Now - _plotStartTime;
                     double timestamp = elapsed.TotalSeconds;
 
                     if (this.InvokeRequired)
                     {
-                        this.Invoke(new Action(() => UpdatePlotData(deviceName, timestamp, value)));
+                        this.Invoke(new Action(() => UpdatePlotData(deviceName, timestamp, normalizedValue)));
                     }
                     else
                     {
-                        UpdatePlotData(deviceName, timestamp, value);
+                        UpdatePlotData(deviceName, timestamp, normalizedValue);
                     }
+
+                    // Для отладки
+                    Log($"Данные получены: исходное={value}, нормализованное={normalizedValue:F3}", "DATA", deviceName);
                 }
                 else
                 {
@@ -742,12 +747,10 @@ namespace ESP32StreamManager
                         if (sinData.Count > MaxDataPoints)
                             sinData.RemoveAt(0);
 
-                        // Обновляем данные серии
                         sinSeries.Points.Clear();
                         sinSeries.Points.AddRange(sinData);
                     }
 
-                    // Автоматическая прокрутка вправо - показываем последние _timeWindow секунд
                     if (plotSin?.Model?.Axes != null && plotSin.Model.Axes.Count > 1)
                     {
                         double minTime = Math.Max(0, timestamp - _timeWindow);
@@ -770,12 +773,10 @@ namespace ESP32StreamManager
                         if (cosData.Count > MaxDataPoints)
                             cosData.RemoveAt(0);
 
-                        // Обновляем данные серии
                         cosSeries.Points.Clear();
                         cosSeries.Points.AddRange(cosData);
                     }
 
-                    // Автоматическая прокрутка вправо - показываем последние _timeWindow секунд
                     if (plotCos?.Model?.Axes != null && plotCos.Model.Axes.Count > 1)
                     {
                         double minTime = Math.Max(0, timestamp - _timeWindow);
@@ -966,15 +967,14 @@ namespace ESP32StreamManager
                     {
                         MessageBox.Show(
                             $"{device.Name} перезагружается и подключится к сети {_config.HotspotSsid}\n" +
-                            $"Это займет 30-40 секунд.",
+                            $"Это займет 5-10 секунд.",
                             "Перезагрузка ESP",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Information);
                     }));
 
-                    Thread.Sleep(35000); // Ждем перезагрузки
+                    Thread.Sleep(7000);
 
-                    // Ищем ESP в домашней сети
                     FindAndSaveEspInNetwork(device);
                 }
                 else
@@ -1107,7 +1107,6 @@ namespace ESP32StreamManager
             {
                 var device = dialog.SelectedDevice;
 
-                // Находим и останавливаем соответствующий воркер
                 var worker = _activeWorkers.FirstOrDefault(w => w.Device.Name == device.Name);
                 if (worker != null)
                 {
