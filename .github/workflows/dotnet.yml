@@ -8,7 +8,11 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    runs-on: ${{ matrix.os }}
     
     steps:
     - uses: actions/checkout@v4
@@ -18,16 +22,22 @@ jobs:
       with:
         dotnet-version: 8.0.x
     
-    # Работаем в папке WIFI_PC
     - name: Restore dependencies
-      working-directory: ./WIFI_PC
+      working-directory: ./WIFI_PC/WIFI_PC
       run: dotnet restore
     
     - name: Build
-      working-directory: ./WIFI_PC
-      run: dotnet build --no-restore
+      working-directory: ./WIFI_PC/WIFI_PC
+      run: dotnet build --no-restore --configuration Release
     
-    # Если есть тесты, раскомментируйте
-    # - name: Test
-    #   working-directory: ./WIFI_PC
-    #   run: dotnet test --no-build --verbosity normal
+    - name: Publish
+      working-directory: ./WIFI_PC/WIFI_PC
+      run: |
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          RUNTIME=win-x64
+        elif [ "$RUNNER_OS" == "Linux" ]; then
+          RUNTIME=linux-x64
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          RUNTIME=osx-x64
+        fi
+        dotnet publish --no-build --configuration Release --runtime $RUNTIME --output ./publish/$RUNTIME
