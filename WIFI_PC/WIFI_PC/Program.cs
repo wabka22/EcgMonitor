@@ -34,9 +34,6 @@ class Program
     {
         public string HotspotSsid { get; set; } = "MyHomeWiFi"; // SSID хот-спота компьютера
         public string HotspotPassword { get; set; } = "mypassword122"; // Пароль хот-спота
-        public string Esp1NetworkName { get; set; } = "ESP32_Cos_Streamer";
-        public string Esp2NetworkName { get; set; } = "ESP32_Sin_Streamer";
-        public string EspNetworkPassword { get; set; } = "12345678";
         public List<EspDeviceConfig> EspDevices { get; set; } = new List<EspDeviceConfig>();
     }
 
@@ -262,63 +259,6 @@ class Program
         }
     }
 
-    // ---------- РУЧНОЕ ПОДКЛЮЧЕНИЕ К ESP ----------
-    static bool ManualConnectToEsp(string networkName, string password)
-    {
-        Console.Clear();
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-        Console.WriteLine("║                РУЧНОЕ ПОДКЛЮЧЕНИЕ К ESP                    ║");
-        Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
-        Console.ResetColor();
-
-        Console.WriteLine($"\nДля продолжения подключитесь к сети ESP:");
-        Console.WriteLine($"\nНазвание сети: {networkName}");
-        Console.WriteLine($"Пароль: {password}");
-
-        Console.WriteLine("\nИнструкция:");
-        Console.WriteLine("1. Нажмите на иконку WiFi в правом нижнем углу экрана");
-        Console.WriteLine("2. Найдите сеть " + networkName);
-        Console.WriteLine("3. Нажмите на неё и введите пароль");
-        Console.WriteLine("4. Подождите пока подключится");
-        Console.WriteLine("5. Вернитесь в эту программу и нажмите Enter");
-
-        Console.Write("\nНажмите Enter когда подключитесь...");
-        Console.ReadLine();
-
-        return IsConnectedToNetwork(networkName);
-    }
-
-    // ---------- ВОЗВРАТ К ХОТ-СПОТУ ----------
-    static void ReconnectToHotspot(Config config)
-    {
-        Log("Возвращаюсь в режим хот-спота...", "INFO");
-
-        try
-        {
-            // Отключаемся от текущей сети
-            RunNetshCommand("wlan disconnect", false);
-            Thread.Sleep(2000);
-
-            // Включаем режим хот-спота (если выключен)
-            Log("Проверяю режим хот-спота...", "INFO");
-            var netshOutput = RunNetshCommand("wlan show hostednetwork");
-
-            if (!netshOutput.Contains("Запущена") && !netshOutput.Contains("Started"))
-            {
-                Log("Хот-спот не запущен. Запускаю...", "INFO");
-                RunNetshCommand("wlan start hostednetwork");
-                Thread.Sleep(3000);
-            }
-
-            Log("Компьютер в режиме хот-спота", "SUCCESS");
-        }
-        catch (Exception e)
-        {
-            Log($"Ошибка при возврате в хот-спот: {e.Message}", "ERROR");
-        }
-    }
-
     // ---------- ВЫПОЛНЕНИЕ КОМАНД netsh ----------
     static string RunNetshCommand(string arguments, bool showErrors = true)
     {
@@ -435,23 +375,15 @@ class Program
 
             Console.WriteLine("\nВыберите способ подключения:");
             Console.WriteLine("1. Автоматическое подключение");
-            Console.WriteLine("2. Ручное подключение (рекомендуется)");
-            Console.WriteLine("3. Отмена");
+            Console.WriteLine("2. Отмена");
 
-            Console.Write("\nВаш выбор (1-3): ");
+            Console.Write("\nВаш выбор (1-2): ");
             string choice = Console.ReadLine();
 
             switch (choice)
             {
                 case "1":
                     if (!ConnectToEspNetwork(device.ApSsid, device.ApPassword))
-                    {
-                        Log($"Не удалось подключиться к WiFi сети {device.ApSsid}", "ERROR");
-                        return null;
-                    }
-                    break;
-                case "2":
-                    if (!ManualConnectToEsp(device.ApSsid, device.ApPassword))
                     {
                         Log($"Не удалось подключиться к WiFi сети {device.ApSsid}", "ERROR");
                         return null;
@@ -503,25 +435,6 @@ class Program
 
         Console.WriteLine($"\nДля принудительного переподключения нажмите 'R'");
         Console.WriteLine($"Для отмены нажмите любую другую клавишу...");
-
-        if (Console.ReadKey(true).Key == ConsoleKey.R)
-        {
-            // Принудительное переподключение
-            Log("Принудительное переподключение...", "INFO");
-            RunNetshCommand("wlan disconnect", false);
-            Thread.Sleep(3000);
-
-            if (ManualConnectToEsp(device.ApSsid, device.ApPassword))
-            {
-                Thread.Sleep(5000); // Даем ESP время на инициализацию
-
-                if (CheckEspAvailability(device.ApIp, device.Port, 3000))
-                {
-                    Log($"{device.Name} теперь доступен!", "SUCCESS", device.Name);
-                    return device.ApIp;
-                }
-            }
-        }
 
         return null;
     }
@@ -577,44 +490,57 @@ class Program
 
                 if (config.EspDevices == null || config.EspDevices.Count == 0)
                 {
-                    Log("Обнаружен старый формат config.json. Выполняю автоматическое обновление...", "INFO");
-                    config.EspDevices = new List<EspDeviceConfig>();
+                    Log("Обнаружен старый формат config.json. Создаю новый...", "INFO");
 
-                    config.EspDevices.Add(new EspDeviceConfig
+                    // Если это старый формат с одиночными полями, создаем устройства
+                    string oldConfigJson = File.ReadAllText(ConfigFile);
+                    if (oldConfigJson.Contains("EspNetworkName"))
                     {
-                        Name = "ESP32_Cos",
-                        ApSsid = config.Esp1NetworkName,
-                        ApPassword = config.EspNetworkPassword,
-                        ApIp = "192.168.4.1",
-                        Port = 8888,
-                        MacAddress = "c4:de:e2:19:2b:6c" // MAC-адрес ESP32_Cos
-                    });
+                        config = new Config();
+                        config.EspDevices = new List<EspDeviceConfig>();
 
-                    config.EspDevices.Add(new EspDeviceConfig
-                    {
-                        Name = "ESP32_Sin",
-                        ApSsid = config.Esp2NetworkName,
-                        ApPassword = config.EspNetworkPassword,
-                        ApIp = "192.168.4.1",
-                        Port = 8888,
-                        MacAddress = "cc:7b:5c:34:cc:f8" // MAC-адрес ESP32_Sin
-                    });
+                        // Читаем старые значения напрямую
+                        var oldConfig = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(oldConfigJson);
 
-                    SaveConfig(config);
-                    Log("Конфигурация успешно обновлена до нового формата с двумя устройствами.", "SUCCESS");
+                        config.HotspotSsid = oldConfig.ContainsKey("PcWifiSsid") ?
+                            oldConfig["PcWifiSsid"].GetString() : "MyHomeWiFi";
+                        config.HotspotPassword = oldConfig.ContainsKey("PcWifiPassword") ?
+                            oldConfig["PcWifiPassword"].GetString() : "mypassword122";
+
+                        // Создаем устройства на основе старых данных
+                        string espNetworkName = oldConfig.ContainsKey("EspNetworkName") ?
+                            oldConfig["EspNetworkName"].GetString() : "ESP32_Sin_Streamer";
+                        string espNetworkPassword = oldConfig.ContainsKey("EspNetworkPassword") ?
+                            oldConfig["EspNetworkPassword"].GetString() : "12345678";
+                        string espApIp = oldConfig.ContainsKey("EspApIp") ?
+                            oldConfig["EspApIp"].GetString() : "192.168.4.1";
+                        int espPort = oldConfig.ContainsKey("EspPort") ?
+                            oldConfig["EspPort"].GetInt32() : 8888;
+
+                        // Создаем одно устройство из старого конфига
+                        config.EspDevices.Add(new EspDeviceConfig
+                        {
+                            Name = "ESP32_Sin",
+                            ApSsid = espNetworkName,
+                            ApPassword = espNetworkPassword,
+                            ApIp = espApIp,
+                            Port = espPort,
+                            MacAddress = "cc:7b:5c:34:cc:f8"
+                        });
+
+                        SaveConfig(config);
+                        Log("Конфигурация успешно обновлена до нового формата", "SUCCESS");
+                    }
                 }
                 return config;
             }
             else
             {
-                // Конфигурация для работы через хот-спот
+                // Конфигурация по умолчанию
                 Config defaultConfig = new Config
                 {
                     HotspotSsid = "MyHomeWiFi", // SSID вашей домашней сети
                     HotspotPassword = "mypassword122", // Пароль вашей домашней сети
-                    Esp1NetworkName = "ESP32_Cos_Streamer",
-                    Esp2NetworkName = "ESP32_Sin_Streamer",
-                    EspNetworkPassword = "12345678",
                     EspDevices = new List<EspDeviceConfig>
                     {
                         new EspDeviceConfig
@@ -624,7 +550,7 @@ class Program
                             ApPassword = "12345678",
                             ApIp = "192.168.4.1",
                             Port = 8888,
-                            HotspotIp = "192.168.137.102", // Прямое назначение IP из вашей сети
+                            HotspotIp = "192.168.137.102",
                             MacAddress = "c4:de:e2:19:2b:6c"
                         },
                         new EspDeviceConfig
@@ -634,7 +560,7 @@ class Program
                             ApPassword = "12345678",
                             ApIp = "192.168.4.1",
                             Port = 8888,
-                            HotspotIp = "192.168.137.173", // Прямое назначение IP из вашей сети
+                            HotspotIp = "192.168.137.173",
                             MacAddress = "cc:7b:5c:34:cc:f8"
                         }
                     }
@@ -837,7 +763,7 @@ class Program
     {
         Console.ForegroundColor = ConsoleColor.Magenta;
         Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-        Console.WriteLine("║       ESP32 Dual Stream Manager - Работа через домашнюю сеть       ║");
+        Console.WriteLine("║       ESP32 Dual Stream Manager - Работа через домашнюю сеть                          ║");
         Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
         Console.ResetColor();
 
@@ -1091,8 +1017,8 @@ class Program
 
             if (success1)
             {
-                Log($"{config.EspDevices[0].Name} перезагружается. Ждем 20 секунд...", "INFO");
-                Thread.Sleep(20000);
+                Log($"{config.EspDevices[0].Name} перезагружается. Ждем 10 секунд...", "INFO");
+                Thread.Sleep(10000);
             }
         }
         else allSuccess = false;
@@ -1722,7 +1648,7 @@ class Program
                 if (i == 102 || i == 173 || i == 1 || i == 100 || i == 50 || i == 200 || i < 10)
                 {
                     string testIp = subnet + i;
-                    if (CheckEspAvailability(testIp, device.Port, 100)) // Уменьшаем таймаут для скорости
+                    if (CheckEspAvailability(testIp, device.Port, 100))
                     {
                         foundIp = testIp;
                         state.Break();
