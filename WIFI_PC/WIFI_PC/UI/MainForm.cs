@@ -5,13 +5,15 @@ using OxyPlot;
 using OxyPlot.Series;
 using OxyPlot.Axes;
 using OxyPlot.WindowsForms;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace ESP32StreamManager
 {
     public partial class MainForm : Form
     {
         private const string ConfigFile = "config.json";
-        private List<StreamWorker> _activeWorkers = new List<StreamWorker>();
+        public List<StreamWorker> _activeWorkers = new List<StreamWorker>();
         private Config _config;
         private NetworkManager _networkManager;
 
@@ -521,253 +523,77 @@ namespace ESP32StreamManager
             }
         }
 
-        // ============= STREAM WORKER CLASS =============
-        class StreamWorker
-        {
-            public EspDeviceConfig Device { get; }
-            public string Ip { get; }
-            private volatile bool _running = false;
-            private TcpClient _client;
-            private NetworkStream _stream;
-            private StreamReader _reader;
-            private Thread _workerThread;
-            private MainForm _mainForm;
-
-            public event Action<string, string> DataReceived;
-
-            public StreamWorker(MainForm mainForm, EspDeviceConfig device, string ip)
-            {
-                _mainForm = mainForm;
-                Device = device;
-                Ip = ip;
-            }
-
-            public void Start()
-            {
-                _workerThread = new Thread(WorkerLoop);
-                _workerThread.IsBackground = true;
-                _workerThread.Start();
-            }
-
-            private void WorkerLoop()
-            {
-                try
-                {
-                    _client = new TcpClient();
-                    _client.Connect(Ip, Device.Port);
-                    _stream = _client.GetStream();
-                    _reader = new StreamReader(_stream);
-
-                    byte[] cmdBytes = Encoding.UTF8.GetBytes("START_STREAM\n");
-                    _stream.Write(cmdBytes, 0, cmdBytes.Length);
-
-                    _running = true;
-
-                    lock (_mainForm._activeWorkers)
-                    {
-                        _mainForm._activeWorkers.Add(this);
-                    }
-
-                    _mainForm.Invoke(new Action(() =>
-                    {
-                        _mainForm.Log("СТРИМИНГ НАЧАТ", "SUCCESS", Device.Name);
-                        _mainForm.UpdateUI();
-                    }));
-
-                    while (_running && _client.Connected)
-                    {
-                        try
-                        {
-                            if (_stream.DataAvailable)
-                            {
-                                string data = _reader.ReadLine();
-                                if (!string.IsNullOrEmpty(data))
-                                {
-                                    DataReceived?.Invoke(Device.Name, data);
-                                }
-                            }
-                            Thread.Sleep(10);
-                        }
-                        catch { break; }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _mainForm.Invoke(new Action(() =>
-                    {
-                        _mainForm.Log($"ОШИБКА: {ex.Message}", "ERROR", Device.Name);
-                    }));
-                }
-                finally
-                {
-                    Stop();
-                }
-            }
-
-            public void Stop()
-            {
-                _running = false;
-                try
-                {
-                    if (_stream != null)
-                    {
-                        byte[] stopBytes = Encoding.UTF8.GetBytes("STOP_STREAM\n");
-                        _stream.Write(stopBytes, 0, stopBytes.Length);
-                        Thread.Sleep(100);
-                    }
-                    _client?.Close();
-
-                    lock (_mainForm._activeWorkers)
-                    {
-                        _mainForm._activeWorkers.Remove(this);
-                    }
-
-                    _mainForm.Invoke(new Action(() =>
-                    {
-                        _mainForm.Log("СТРИМИНГ ОСТАНОВЛЕН", "INFO", Device.Name);
-                        _mainForm.UpdateUI();
-                    }));
-                }
-                catch { }
-            }
-        }
-
         private Dictionary<string, Queue<double>> _dataFilters = new Dictionary<string, Queue<double>>();
         private const int FILTER_WINDOW_SIZE = 5;
+        private class LowPassFilter
+        {
+            public double Prev;
+            public bool HasPrev;
+        }
+
+        private readonly Dictionary<string, LowPassFilter> _filters
+    = new Dictionary<string, LowPassFilter>();
+
 
         private double ApplyFilter(string deviceName, double value)
         {
-            if (!_dataFilters.ContainsKey(deviceName))
+            const double alpha = 0.1;
+
+            if (!_filters.TryGetValue(deviceName, out var filter))
             {
-                _dataFilters[deviceName] = new Queue<double>();
+                filter = new LowPassFilter();
+                _filters[deviceName] = filter;
             }
 
-            var filterQueue = _dataFilters[deviceName];
-
-            filterQueue.Enqueue(value);
-
-            if (filterQueue.Count > FILTER_WINDOW_SIZE)
+            if (!filter.HasPrev)
             {
-                filterQueue.Dequeue();
-            }
-
-            if (filterQueue.Count < 3)
-            {
+                filter.Prev = value;
+                filter.HasPrev = true;
                 return value;
             }
 
-            var sortedValues = filterQueue.OrderBy(x => x).ToList();
-            return sortedValues[sortedValues.Count / 2];
+            double filtered =
+                filter.Prev + alpha * (value - filter.Prev);
+
+            filter.Prev = filtered;
+            return filtered;
         }
 
         private void AddDataPoint(string deviceName, string data)
         {
             try
             {
-                if (!_isFormLoaded) return;
+                if (!_isFormLoaded)
+                    return;
 
-                string cleanData = data.Trim();
+                string s = data.Trim().Replace(',', '.');
 
-                double value = 0;
-                bool parsed = false;
-
-                if (double.TryParse(cleanData, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out value))
+                if (!double.TryParse(
+                    s,
+                    System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out double value))
                 {
-                    parsed = true;
+                    Log($"Не удалось распарсить: {data}", "WARN", deviceName);
+                    return;
                 }
 
-                else if (cleanData.Contains('.'))
+                if (value < -1.1 || value > 1.1)
+                    return;
+
+                double filteredValue = ApplyFilter(deviceName, value);
+
+                double timestamp =
+                    (DateTime.Now - _plotStartTime).TotalSeconds;
+
+                if (InvokeRequired)
                 {
-                    string withComma = cleanData.Replace('.', ',');
-                    if (double.TryParse(withComma, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out value))
-                    {
-                        parsed = true;
-                    }
-                }
-
-                else if (cleanData.Contains(','))
-                {
-                    string withDot = cleanData.Replace(',', '.');
-                    if (double.TryParse(withDot, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out value))
-                    {
-                        parsed = true;
-                    }
-                }
-
-                if (parsed)
-                {
-                    if (value < -1.2 || value > 1.2)
-                    {
-                        Log($"Пропущено неверное значение: {value}", "WARN", deviceName);
-                        return;
-                    }
-
-                    double filteredValue = ApplyFilter(deviceName, value);
-
-                    double normalizedValue = filteredValue * 1.5;
-
-                    TimeSpan elapsed = DateTime.Now - _plotStartTime;
-                    double timestamp = elapsed.TotalSeconds;
-
-                    if (this.InvokeRequired)
-                    {
-                        this.Invoke(new Action(() => UpdatePlotData(deviceName, timestamp, normalizedValue)));
-                    }
-                    else
-                    {
-                        UpdatePlotData(deviceName, timestamp, normalizedValue);
-                    }
-
-                    if (DateTime.Now.Second % 2 == 0)
-                    {
-                        Log($"Данные: {value:F3} -> {filteredValue:F3}", "DATA", deviceName);
-                    }
+                    Invoke(new Action(() =>
+                        UpdatePlotData(deviceName, timestamp, filteredValue)));
                 }
                 else
                 {
-                    string[] numberPatterns = {
-                @"[-+]?\d+[,.]?\d*",
-                @"[-+]?\d+" 
-            };
-
-                    foreach (string pattern in numberPatterns)
-                    {
-                        var match = System.Text.RegularExpressions.Regex.Match(cleanData, pattern);
-                        if (match.Success)
-                        {
-                            string numberStr = match.Value;
-                            if (double.TryParse(numberStr.Replace(',', '.'),
-                                System.Globalization.NumberStyles.Float,
-                                System.Globalization.CultureInfo.InvariantCulture, out value))
-                            {
-                                if (value >= -1.2 && value <= 1.2)
-                                {
-                                    double filteredValue = ApplyFilter(deviceName, value);
-                                    double normalizedValue = filteredValue * 1.5;
-
-                                    TimeSpan elapsed = DateTime.Now - _plotStartTime;
-                                    double timestamp = elapsed.TotalSeconds;
-
-                                    if (this.InvokeRequired)
-                                    {
-                                        this.Invoke(new Action(() => UpdatePlotData(deviceName, timestamp, normalizedValue)));
-                                    }
-                                    else
-                                    {
-                                        UpdatePlotData(deviceName, timestamp, normalizedValue);
-                                    }
-
-                                    Log($"Найдено число в строке: {value:F3}", "DATA", deviceName);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-
-                    Log($"Не удалось распарсить данные: {data}", "WARN", deviceName);
+                    UpdatePlotData(deviceName, timestamp, filteredValue);
                 }
             }
             catch (Exception ex)
@@ -775,6 +601,7 @@ namespace ESP32StreamManager
                 Log($"Ошибка обработки данных: {ex.Message}", "ERROR", deviceName);
             }
         }
+
 
         private void UpdatePlotData(string deviceName, double timestamp, double value)
         {
@@ -1016,6 +843,34 @@ namespace ESP32StreamManager
             }
         }
 
+        private List<string> GetHotspotClientsIps()
+        {
+            var ips = new List<string>();
+
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "arp",
+                    Arguments = "-a",
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            var regex = new Regex(@"\b192\.168\.137\.\d+\b");
+
+            foreach (Match m in regex.Matches(output))
+                ips.Add(m.Value);
+
+            return ips.Distinct().ToList();
+        }
+
         private bool FindAndSaveEspInNetwork(EspDeviceConfig device)
         {
             Log($"Поиск {device.Name} в домашней сети...", "INFO", device.Name);
@@ -1025,32 +880,27 @@ namespace ESP32StreamManager
                 if (_networkManager.CheckEspAvailability(device.HotspotIp, device.Port, 1000))
                 {
                     Log($"{device.Name} найден по сохраненному IP: {device.HotspotIp}", "SUCCESS", device.Name);
-                    SaveConfig();
-                    UpdateUI();
                     return true;
                 }
             }
 
-            string[] knownIps = {
-                "192.168.137.102", "192.168.137.173",
-                "192.168.137.1", "192.168.137.100",
-                "192.168.1.102", "192.168.1.173",
-                "192.168.0.102", "192.168.0.173"
-            };
+            Log("Получение списка устройств хот-спота...", "INFO", device.Name);
 
-            foreach (string ip in knownIps)
+            var hotspotIps = GetHotspotClientsIps();
+
+            foreach (var ip in hotspotIps)
             {
                 if (_networkManager.CheckEspAvailability(ip, device.Port, 500))
                 {
                     device.HotspotIp = ip;
-                    Log($"{device.Name} найден: {ip}", "SUCCESS", device.Name);
+                    Log($"{device.Name} найден через хот-спот: {ip}", "SUCCESS", device.Name);
                     SaveConfig();
                     UpdateUI();
                     return true;
                 }
             }
 
-            Log($"Сканирование подсети 192.168.137.*", "INFO", device.Name);
+            Log("ESP не найден в хот-споте, fallback-скан...", "WARN", device.Name);
 
             for (int i = 1; i < 255; i++)
             {
@@ -1058,7 +908,7 @@ namespace ESP32StreamManager
                 if (_networkManager.CheckEspAvailability(testIp, device.Port, 100))
                 {
                     device.HotspotIp = testIp;
-                    Log($"{device.Name} найден: {testIp}", "SUCCESS", device.Name);
+                    Log($"{device.Name} найден fallback-сканом: {testIp}", "SUCCESS", device.Name);
                     SaveConfig();
                     UpdateUI();
                     return true;

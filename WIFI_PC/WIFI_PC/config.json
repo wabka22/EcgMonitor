@@ -11,7 +11,7 @@
       "ApPassword": "12345678",
       "ApIp": "192.168.4.1",
       "Port": 8888,
-      "HotspotIp": "192.168.137.17",
+      "HotspotIp": "192.168.137.104",
       "MacAddress": "c4:de:e2:19:2b:6c"
     },
     {
@@ -20,7 +20,7 @@
       "ApPassword": "12345678",
       "ApIp": "192.168.4.1",
       "Port": 8888,
-      "HotspotIp": "192.168.137.29",
+      "HotspotIp": "192.168.137.200",
       "MacAddress": "cc:7b:5c:34:cc:f8"
     }
   ]
