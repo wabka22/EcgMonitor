@@ -459,7 +459,7 @@ namespace ESP32StreamManager
                 bool sinStreaming = _activeWorkers.Any(w => w.Device.Name.Contains("Sin"));
                 plotSin.Model.Title = sinStreaming ?
                     "ESP32_Sin - АКТИВНЫЙ СТРИМИНГ" :
-                    "ESP32_Sin - Синусоидальный сигнал";
+                    "ESP32_ECG1 - Сигнал ЭКГ (AD8232)";
                 plotSin.InvalidatePlot(true);
             }
 
@@ -652,10 +652,13 @@ namespace ESP32StreamManager
                     return;
                 }
 
-                if (value < -1.1 || value > 1.1)
+                if (value < 0 || value > 4095)
+                {
+                    Log($"Значение вне диапазона АЦП: {value}", "WARN", deviceName);
                     return;
+                }
 
-                double filteredValue = ApplyDoubleLowPass(deviceName, value);
+                double filteredValue = value;
 
                 double timestamp =
                     (DateTime.Now - _plotStartTime).TotalSeconds;
