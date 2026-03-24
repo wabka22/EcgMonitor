@@ -72,7 +72,7 @@ namespace ESP32StreamManager
             panelTop = new Panel();
             panelTop.Dock = DockStyle.Top;
             panelTop.Height = 90;
-            panelTop.BackColor = Color.FromArgb(40, 42, 46);
+            panelTop.BackColor = Color.FromArgb(0, 0, 48);
 
             lblStatus = new Label();
             lblStatus.ForeColor = Color.White;
@@ -97,7 +97,7 @@ namespace ESP32StreamManager
 
             panelCenter = new Panel();
             panelCenter.Dock = DockStyle.Fill;
-            panelCenter.BackColor = Color.FromArgb(32, 34, 38);
+            panelCenter.BackColor = Color.FromArgb(0, 0, 48);
             panelCenter.Padding = new Padding(10);
 
             TableLayoutPanel tableLayout = new TableLayoutPanel();
@@ -127,7 +127,7 @@ namespace ESP32StreamManager
             controlPanel = new Panel();
             controlPanel.Dock = DockStyle.Left;
             controlPanel.Width = 320;
-            controlPanel.BackColor = Color.FromArgb(48, 50, 55);
+            controlPanel.BackColor = Color.FromArgb(0, 0, 48);
             controlPanel.Padding = new Padding(10);
             controlPanel.AutoScroll = true;
 
@@ -171,7 +171,7 @@ namespace ESP32StreamManager
 
             Label lblUtility = new Label()
             {
-                Text = "УТИЛИТЫ",
+                Text = "ОСТАНОВКА СТРИМИНГА",
                 ForeColor = Color.MediumTurquoise,
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
                 Location = new Point(10, 290),
@@ -183,7 +183,7 @@ namespace ESP32StreamManager
 
             btnClearPlots = CreateButton("Очистить графики", 10, 355);
             btnClearPlots.Click += (s, e) => ClearPlots();
-            btnClearPlots.BackColor = Color.FromArgb(80, 80, 0);
+            btnClearPlots.BackColor = Color.FromArgb(0, 80, 0);
 
 
             btnExit = CreateButton("Выход", 10, 395);
@@ -203,7 +203,7 @@ namespace ESP32StreamManager
             txtLog = new RichTextBox();
             txtLog.Multiline = true;
             txtLog.Dock = DockStyle.Fill;
-            txtLog.BackColor = Color.FromArgb(30, 31, 34);
+            txtLog.BackColor = Color.FromArgb(0, 0, 48);
             txtLog.ForeColor = Color.White;
             txtLog.Font = new Font("Consolas", 9);
             txtLog.ReadOnly = true;
@@ -224,7 +224,6 @@ namespace ESP32StreamManager
         {
             if (!_isFormLoaded) return;
 
-            // Запускаем в фоновом потоке, чтобы не блокировать UI
             Task.Run(() => CheckEspStatuses());
         }
 
@@ -244,7 +243,7 @@ namespace ESP32StreamManager
                         bool isAvailable = _networkManager.CheckEspAvailability(
                             device.HotspotIp,
                             device.Port,
-                            1000); 
+                            1000);
 
                         this.Invoke(new Action(() =>
                         {
@@ -323,7 +322,7 @@ namespace ESP32StreamManager
             btn.Text = text;
             btn.Location = new Point(x, y);
             btn.Size = new Size(300, 30);
-            btn.BackColor = Color.FromArgb(62, 62, 66);
+            btn.BackColor = Color.FromArgb(66, 66, 66);
             btn.ForeColor = Color.White;
             btn.FlatStyle = FlatStyle.Flat;
             btn.Font = new Font("Segoe UI", 9);
@@ -442,7 +441,7 @@ namespace ESP32StreamManager
             {
                 bool isStreaming = _activeWorkers.Any(w => w.Device.Name == sinDevice.Name);
                 bool hasIP = !string.IsNullOrEmpty(sinDevice.HotspotIp);
-                lblSinStatus.Text = $"ESP32_Sin: {(isStreaming ? "Стриминг" : "Отключено")} | IP: {(hasIP ? sinDevice.HotspotIp : "Нет IP")}";
+                lblSinStatus.Text = $"ESP32_ADS: {(isStreaming ? "Стриминг" : "Отключено")} | IP: {(hasIP ? sinDevice.HotspotIp : "Нет IP")}";
                 lblSinStatus.ForeColor = isStreaming ? Color.Yellow : (hasIP ? Color.LightGreen : Color.LightGray);
             }
 
@@ -601,38 +600,6 @@ namespace ESP32StreamManager
 
         private readonly Dictionary<string, double> _prevStage2 = new Dictionary<string, double>();
 
-        private double ApplyDoubleLowPass(string deviceName, double value)
-        {
-            double alpha1 = deviceName.Contains("Sin") ? 0.12 : 0.08;
-            if (!_filters.TryGetValue(deviceName, out var filter))
-            {
-                filter = new LowPassFilter();
-                _filters[deviceName] = filter;
-            }
-
-            if (!filter.HasPrev)
-            {
-                filter.Prev = value;
-                filter.HasPrev = true;
-            }
-            else
-            {
-                filter.Prev = filter.Prev + alpha1 * (value - filter.Prev);
-            }
-
-            double stage1 = filter.Prev;
-
-            double alpha2 = deviceName.Contains("Sin") ? 0.25 : 0.2;
-
-            if (!_prevStage2.TryGetValue(deviceName, out double stage2Prev))
-                stage2Prev = stage1;
-
-            double stage2 = stage2Prev + alpha2 * (stage1 - stage2Prev);
-            _prevStage2[deviceName] = stage2;
-
-            return stage2;
-        }
-
         private void AddDataPoint(string deviceName, string data)
         {
             try
@@ -697,7 +664,7 @@ namespace ESP32StreamManager
 
                     if (plotSin?.Model?.Axes != null && plotSin.Model.Axes.Count > 1)
                     {
-                        double minTime = timestamp - _timeWindow; 
+                        double minTime = timestamp - _timeWindow;
                         double maxTime = timestamp;
                         if (minTime < 0) minTime = 0;
                         plotSin.Model.Axes[1].Minimum = minTime;

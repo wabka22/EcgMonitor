@@ -77,7 +77,7 @@ namespace ESP32StreamManager
             catch (Exception e) { return $"ERROR: {e.Message}"; }
         }
 
-        // ---------- УЛУЧШЕННАЯ ПРОВЕРКА ПОДКЛЮЧЕНИЯ К СЕТИ ----------
+        // ---------- ПРОВЕРКА ПОДКЛЮЧЕНИЯ К СЕТИ ----------
         public bool IsConnectedToNetwork(string networkName)
         {
             try
