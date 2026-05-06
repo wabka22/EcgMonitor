@@ -46,6 +46,8 @@ namespace ESP32StreamManager
         private Label lblRecordValue;
 
         private EcgSegmenter _segmenter;
+        private EcgPredictionState _predictionState;
+
         private bool _predictionEnabled = false;
 
         private ListBox listLog;
@@ -424,6 +426,7 @@ namespace ESP32StreamManager
             model.Series.Add(qrsAfterSpikeSeries);
 
             plotEcg.Model = model;
+            _predictionState = new EcgPredictionState(model, sampleRate: 500.0);
         }
 
         private void MainForm_Load(object sender, EventArgs e)
@@ -760,7 +763,7 @@ namespace ESP32StreamManager
                     return;
                 }
 
-                if (value < -4095 || value > 4095)
+                if (value < -6000 || value > 6000)
                 {
                     Log($"Значение вне диапазона АЦП: {value}", "WARN", deviceName);
                     return;
@@ -775,6 +778,7 @@ namespace ESP32StreamManager
                     if (_segmenter.AddSample((float)value, out var currentPrediction))
                     {
                         prediction = currentPrediction;
+                        Log($"ML: {prediction.Type}, p={prediction.Probability:0.000}", "INFO", deviceName);
                     }
                 }
 
@@ -834,45 +838,23 @@ namespace ESP32StreamManager
             }
         }
 
-        private void AddPredictionPoint( double timestamp,double value, EcgPrediction prediction)
+        private void AddPredictionPoint(double timestamp, double value, EcgPrediction prediction)
         {
-                Log(
-        $"Prediction: {prediction.Type}, prob={prediction.Probability:0.000}",
-        "INFO");
+            if (prediction.Type == SegmentType.Background)
+                return;
 
-            var type = prediction.Type;
+            if (prediction.Probability < 0.55f)
+                return;
 
-            if (type == SegmentType.Qrs &&
-                _lastDetectedType == SegmentType.Spike)
+            var type = _predictionState.Update(timestamp, prediction);
+
+            lblStatus.Text = type switch
             {
-                type = SegmentType.QrsAfterSpike;
-            }
-
-            switch (type)
-            {
-                case SegmentType.Qrs:
-                    qrsSeries.Points.Add(new ScatterPoint(timestamp, value));
-                    lblStatus.Text = $"Распознано: QRS | {prediction.Probability:0.00}";
-                    break;
-
-                case SegmentType.Spike:
-                    spikeSeries.Points.Add(new ScatterPoint(timestamp, value));
-                    lblStatus.Text = $"Распознано: SPIKE | {prediction.Probability:0.00}";
-                    break;
-
-                case SegmentType.QrsAfterSpike:
-                    qrsAfterSpikeSeries.Points.Add(new ScatterPoint(timestamp, value));
-                    lblStatus.Text = $"Распознано: QRS after spike | {prediction.Probability:0.00}";
-                    break;
-
-                default:
-                    break;
-            }
-
-            if (type != SegmentType.Background)
-            {
-                _lastDetectedType = type;
-            }
+                SegmentType.Qrs => $"Распознано: QRS | {prediction.Probability:0.00}",
+                SegmentType.Spike => $"Распознано: SPIKE | {prediction.Probability:0.00}",
+                SegmentType.QrsAfterSpike => $"Распознано: QRS after spike | {prediction.Probability:0.00}",
+                _ => lblStatus.Text
+            };
         }
 
         private void TrimPredictionSeries(double timestamp)
@@ -882,8 +864,9 @@ namespace ESP32StreamManager
             RemoveOldPoints(qrsSeries, minTime);
             RemoveOldPoints(spikeSeries, minTime);
             RemoveOldPoints(qrsAfterSpikeSeries, minTime);
-        }
 
+            _predictionState?.Trim(minTime);
+        }
         private void RemoveOldPoints(ScatterSeries series, double minTime)
         {
             while (series.Points.Count > 0 && series.Points[0].X < minTime)
@@ -959,10 +942,12 @@ namespace ESP32StreamManager
                     ecgData.Clear();
 
                 ecgSeries.Points.Clear();
-                qrsSeries.Points.Clear();
-                spikeSeries.Points.Clear();
-                qrsAfterSpikeSeries.Points.Clear();
 
+                qrsSeries?.Points.Clear();
+                spikeSeries?.Points.Clear();
+                qrsAfterSpikeSeries?.Points.Clear();
+
+                _predictionState?.Clear();
                 _lastDetectedType = SegmentType.Background;
 
                 _plotStartTime = DateTime.Now;

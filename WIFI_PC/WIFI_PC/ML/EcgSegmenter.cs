@@ -65,23 +65,34 @@ namespace ESP32StreamManager.ML
 
             int lastIndex = WindowSize - 1;
 
-            float background = output[0, 0, lastIndex];
-            float qrs = output[0, 1, lastIndex];
-            float spike = output[0, 2, lastIndex];
+            float backgroundLogit = output[0, 0, lastIndex];
+            float qrsLogit = output[0, 1, lastIndex];
+            float spikeLogit = output[0, 2, lastIndex];
+
+            float maxLogit = MathF.Max(backgroundLogit, MathF.Max(qrsLogit, spikeLogit));
+
+            float backgroundExp = MathF.Exp(backgroundLogit - maxLogit);
+            float qrsExp = MathF.Exp(qrsLogit - maxLogit);
+            float spikeExp = MathF.Exp(spikeLogit - maxLogit);
+
+            float sumExp = backgroundExp + qrsExp + spikeExp;
+
+            float background = backgroundExp / sumExp;
+            float qrs = qrsExp / sumExp;
+            float spike = spikeExp / sumExp;
 
             SegmentType type = SegmentType.Background;
             float probability = background;
 
-            if (qrs > probability)
-            {
-                type = SegmentType.Qrs;
-                probability = qrs;
-            }
-
-            if (spike > probability)
+            if (spike > 0.45f && spike > qrs * 0.9f)
             {
                 type = SegmentType.Spike;
                 probability = spike;
+            }
+            else if (qrs > 0.55f)
+            {
+                type = SegmentType.Qrs;
+                probability = qrs;
             }
 
             return new EcgPrediction

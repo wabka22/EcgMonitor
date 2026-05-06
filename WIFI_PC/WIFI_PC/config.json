@@ -4,7 +4,7 @@
   "EspDevices": [
     {
       "Name": "ESP32_ECG",
-      "ApSsid": "ESP32_Cos_Streamer",
+      "ApSsid": "ESP32_ECG_Streamer",
       "ApPassword": "12345678",
       "ApIp": "192.168.4.1",
       "Port": 8888,
