@@ -8,13 +8,15 @@ namespace ESP32StreamManager.ML
         private readonly PlotModel _plotModel;
         private readonly double _maxSpikeToQrsDelaySec;
 
+        private const double MarkerHalfWidth = 0.18;
+
         private double? _lastSpikeTime = null;
         private readonly List<RectangleAnnotation> _annotations = new();
 
         public EcgPredictionState(
             PlotModel plotModel,
             double sampleRate = 500.0,
-            double maxSpikeToQrsDelaySec = 0.35)
+            double maxSpikeToQrsDelaySec = 0.45)
         {
             _plotModel = plotModel;
             _maxSpikeToQrsDelaySec = maxSpikeToQrsDelaySec;
@@ -31,7 +33,7 @@ namespace ESP32StreamManager.ML
             {
                 double dt = timestamp - _lastSpikeTime.Value;
 
-                if (dt >= 0.02 && dt <= _maxSpikeToQrsDelaySec)
+                if (dt >= -0.10 && dt <= 0.45)
                     type = SegmentType.QrsAfterSpike;
             }
 
@@ -45,8 +47,8 @@ namespace ESP32StreamManager.ML
         {
             var annotation = new RectangleAnnotation
             {
-                MinimumX = timestamp - 0.025,
-                MaximumX = timestamp + 0.025,
+                MinimumX = timestamp - MarkerHalfWidth,
+                MaximumX = timestamp + MarkerHalfWidth,
                 MinimumY = double.NegativeInfinity,
                 MaximumY = double.PositiveInfinity,
                 Fill = GetFillColor(type),
@@ -84,13 +86,13 @@ namespace ESP32StreamManager.ML
             return type switch
             {
                 SegmentType.Qrs =>
-                    OxyColor.FromAColor(75, OxyColor.FromRgb(34, 197, 94)),
+                    OxyColor.FromAColor(45, OxyColor.FromRgb(34, 197, 94)),
 
                 SegmentType.Spike =>
-                    OxyColor.FromAColor(95, OxyColor.FromRgb(239, 68, 68)),
+                    OxyColor.FromAColor(55, OxyColor.FromRgb(239, 68, 68)),
 
                 SegmentType.QrsAfterSpike =>
-                    OxyColor.FromAColor(95, OxyColor.FromRgb(168, 85, 247)),
+                    OxyColor.FromAColor(55, OxyColor.FromRgb(168, 85, 247)),
 
                 _ => OxyColors.Transparent
             };

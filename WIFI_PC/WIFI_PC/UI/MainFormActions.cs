@@ -1,4 +1,7 @@
-﻿using System.Diagnostics;
+﻿using OxyPlot;
+using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 
 namespace ESP32StreamManager
 {
@@ -115,5 +118,72 @@ namespace ESP32StreamManager
                     : "Нейросетевые предсказания выключены",
                 "INFO");
         }
+
+        private void SaveRecordingToCsv()
+        {
+            try
+            {
+                List<DataPoint> snapshot;
+
+                lock (ecgData)
+                {
+                    if (ecgData.Count == 0)
+                    {
+                        MessageBox.Show(
+                            "Нет данных для сохранения.",
+                            "Сохранение записи",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+
+                        return;
+                    }
+
+                    snapshot = ecgData.ToList();
+                }
+
+                using var dialog = new SaveFileDialog
+                {
+                    Title = "Сохранить запись ЭКГ",
+                    Filter = "CSV файл (*.csv)|*.csv",
+                    FileName = $"ecg_record_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+                };
+
+                if (dialog.ShowDialog() != DialogResult.OK)
+                    return;
+
+                var sb = new StringBuilder();
+
+                sb.AppendLine("time_sec,adc_value");
+
+                foreach (var point in snapshot)
+                {
+                    sb.AppendLine(
+                        $"{point.X.ToString(CultureInfo.InvariantCulture)}," +
+                        $"{point.Y.ToString(CultureInfo.InvariantCulture)}");
+                }
+
+                File.WriteAllText(dialog.FileName, sb.ToString(), Encoding.UTF8);
+
+                Log($"Запись сохранена: {dialog.FileName}", "SUCCESS");
+
+                MessageBox.Show(
+                    "Запись успешно сохранена.",
+                    "Сохранение записи",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                Log($"Ошибка сохранения записи: {ex.Message}", "ERROR");
+
+                MessageBox.Show(
+                    $"Не удалось сохранить запись:\n{ex.Message}",
+                    "Ошибка",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
     }
+
+
 }

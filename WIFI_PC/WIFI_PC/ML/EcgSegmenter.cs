@@ -44,8 +44,6 @@ namespace ESP32StreamManager.ML
             var input = new DenseTensor<float>(
                 new[] { 1, Channels, WindowSize });
 
-            // Пока один реальный канал дублируем на 12 каналов.
-            // Если модель обучалась на одном канале — лучше экспортировать ONNX под [1, 1, 512].
             for (int ch = 0; ch < Channels; ch++)
             {
                 for (int i = 0; i < WindowSize; i++)
@@ -84,12 +82,12 @@ namespace ESP32StreamManager.ML
             SegmentType type = SegmentType.Background;
             float probability = background;
 
-            if (spike > 0.45f && spike > qrs * 0.9f)
+            if (spike > 0.35f && spike > qrs * 0.75f)
             {
                 type = SegmentType.Spike;
                 probability = spike;
             }
-            else if (qrs > 0.55f)
+            else if (qrs > 0.60f)
             {
                 type = SegmentType.Qrs;
                 probability = qrs;

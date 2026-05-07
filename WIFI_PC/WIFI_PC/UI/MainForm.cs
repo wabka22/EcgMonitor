@@ -36,6 +36,7 @@ namespace ESP32StreamManager
         private Button btnTogglePrediction;
         private Button btnOpenConfig;
         private Button btnHotspot;
+        private Button btnSaveRecord;
 
         private Label lblTitle;
         private Label lblStatus;
@@ -217,7 +218,7 @@ namespace ESP32StreamManager
             {
                 Dock = DockStyle.Fill,
                 ColumnCount = 1,
-                RowCount = 11,
+                RowCount = 12,
                 BackColor = AppTheme.PanelBackColor
             };
 
@@ -225,17 +226,18 @@ namespace ESP32StreamManager
 
             controlsLayout.RowStyles.Clear();
 
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 45));   // Заголовок
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 55));   // Подсказка
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));   // Найти
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));   // Wi-Fi
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));   // Хот-спот
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));   // Старт
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 78));   // Стоп
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));   // Очистить
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));   // Предсказания
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));   // Настройки
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // Остаток
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); // Заголовок
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50)); // Подсказка
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Найти
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Wi-Fi
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Хот-спот
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74)); // Старт
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74)); // Стоп
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Очистить
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Сохранить
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Предсказания
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Настройки
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var lblControl = new Label
             {
@@ -255,10 +257,10 @@ namespace ESP32StreamManager
                 TextAlign = ContentAlignment.TopLeft
             };
 
-            btnFindEsp = UiFactory.CreateSecondaryButton("🔍  Найти устройство");
+            btnFindEsp = UiFactory.CreateSecondaryButton("🔍  Найти устройство в сети");
             btnFindEsp.Click += (s, e) => FindEspInHotspotNetwork();
 
-            btnConfigureEsp = UiFactory.CreateSecondaryButton("📶  Настроить Wi-Fi");
+            btnConfigureEsp = UiFactory.CreateSecondaryButton("📶  Настроить Wi-Fi  ");
             btnConfigureEsp.Click += (s, e) => ConfigureSingleEsp();
 
             btnHotspot = UiFactory.CreateSecondaryButton("📡  Хот-спот Windows");
@@ -272,6 +274,9 @@ namespace ESP32StreamManager
 
             btnClearPlot = UiFactory.CreateSecondaryButton("🧹  Очистить график");
             btnClearPlot.Click += (s, e) => ClearPlot();
+
+            btnSaveRecord = UiFactory.CreateSecondaryButton("💾  Сохранить запись");
+            btnSaveRecord.Click += (s, e) => SaveRecordingToCsv();
 
             btnTogglePrediction = UiFactory.CreateSecondaryButton("🧠  Предсказания: ВЫКЛ");
             btnTogglePrediction.Click += (s, e) => TogglePrediction();
@@ -287,8 +292,9 @@ namespace ESP32StreamManager
             controlsLayout.Controls.Add(btnStartStream, 0, 5);
             controlsLayout.Controls.Add(btnStopStream, 0, 6);
             controlsLayout.Controls.Add(btnClearPlot, 0, 7);
-            controlsLayout.Controls.Add(btnTogglePrediction, 0, 8);
-            controlsLayout.Controls.Add(btnOpenConfig, 0, 9);
+            controlsLayout.Controls.Add(btnSaveRecord, 0, 8);
+            controlsLayout.Controls.Add(btnTogglePrediction, 0, 9);
+            controlsLayout.Controls.Add(btnOpenConfig, 0, 10);
 
             controlPanel.Controls.Add(controlsLayout);
 
@@ -529,6 +535,12 @@ namespace ESP32StreamManager
 
             btnStartStream.Enabled = !isStreaming;
             btnStopStream.Enabled = isStreaming;
+
+            btnStartStream.Text = ecgData.Count > 0
+        ? "▶  ПРОДОЛЖИТЬ ЗАПИСЬ"
+        : "▶  НАЧАТЬ ЗАПИСЬ";
+
+            btnSaveRecord.Enabled = ecgData.Count > 0;
 
             if (device != null)
                 lblIpValue.Text = device.HotspotIp ?? "Не задан";
@@ -967,6 +979,7 @@ namespace ESP32StreamManager
 
                 plotEcg.InvalidatePlot(true);
                 Log("График очищен", "SUCCESS");
+                UpdateUI();
             }
             catch (Exception ex)
             {
@@ -1097,10 +1110,17 @@ namespace ESP32StreamManager
             }
 
             StopAllStreams();
-            ClearPlot();
+
+            bool continueRecording = ecgData.Count > 0;
+
+            if (!continueRecording)
+            {
+                ClearPlot();
+                _plotStartTime = DateTime.Now;
+                _receivedPoints = 0;
+            }
 
             _recordingStartTime = DateTime.Now;
-            _receivedPoints = 0;
 
             var worker = new StreamWorker(this, device, ip);
 
@@ -1111,7 +1131,13 @@ namespace ESP32StreamManager
 
             worker.Start();
 
-            Log($"Регистрация сигнала начата: {device.Name}", "SUCCESS", device.Name);
+            Log(
+                continueRecording
+                    ? $"Регистрация продолжена: {device.Name}"
+                    : $"Регистрация сигнала начата: {device.Name}",
+                "SUCCESS",
+                device.Name);
+
             UpdateUI();
         }
 
