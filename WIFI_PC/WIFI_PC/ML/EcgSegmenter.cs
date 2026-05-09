@@ -56,8 +56,8 @@ namespace ESP32StreamManager.ML
 
             using var results = _session.Run(new[]
             {
-                NamedOnnxValue.CreateFromTensor(inputName, input)
-            });
+        NamedOnnxValue.CreateFromTensor(inputName, input)
+    });
 
             var output = results.First().AsTensor<float>();
 
@@ -66,28 +66,44 @@ namespace ESP32StreamManager.ML
             float backgroundLogit = output[0, 0, lastIndex];
             float qrsLogit = output[0, 1, lastIndex];
             float spikeLogit = output[0, 2, lastIndex];
+            float qrsAfterLogit = output[0, 3, lastIndex];
 
-            float maxLogit = MathF.Max(backgroundLogit, MathF.Max(qrsLogit, spikeLogit));
+            float maxLogit = MathF.Max(
+                MathF.Max(backgroundLogit, qrsLogit),
+                MathF.Max(spikeLogit, qrsAfterLogit));
 
             float backgroundExp = MathF.Exp(backgroundLogit - maxLogit);
             float qrsExp = MathF.Exp(qrsLogit - maxLogit);
             float spikeExp = MathF.Exp(spikeLogit - maxLogit);
+            float qrsAfterExp = MathF.Exp(qrsAfterLogit - maxLogit);
 
-            float sumExp = backgroundExp + qrsExp + spikeExp;
+            float sumExp = backgroundExp + qrsExp + spikeExp + qrsAfterExp;
 
             float background = backgroundExp / sumExp;
             float qrs = qrsExp / sumExp;
             float spike = spikeExp / sumExp;
+            float qrsAfter = qrsAfterExp / sumExp;
 
             SegmentType type = SegmentType.Background;
             float probability = background;
 
-            if (spike > 0.35f && spike > qrs * 0.75f)
+
+            if (spike >= 0.15f &&
+                spike >= qrs * 0.45f &&
+                spike >= background * 0.50f)
             {
                 type = SegmentType.Spike;
                 probability = spike;
             }
-            else if (qrs > 0.60f)
+            else if (qrsAfter >= 0.45f &&
+                     qrsAfter >= background &&
+                     qrsAfter >= qrs * 0.70f)
+            {
+                type = SegmentType.QrsAfterSpike;
+                probability = qrsAfter;
+            }
+            else if (qrs >= 0.45f &&
+                     qrs >= background)
             {
                 type = SegmentType.Qrs;
                 probability = qrs;

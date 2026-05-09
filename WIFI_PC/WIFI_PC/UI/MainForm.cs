@@ -44,7 +44,6 @@ namespace ESP32StreamManager
         private Label lblDeviceValue;
         private Label lblIpValue;
         private Label lblQualityValue;
-        private Label lblRecordValue;
 
         private EcgSegmenter _segmenter;
         private EcgPredictionState _predictionState;
@@ -65,7 +64,6 @@ namespace ESP32StreamManager
         private SegmentType _lastDetectedType = SegmentType.Background;
 
         private DateTime _plotStartTime;
-        private DateTime? _recordingStartTime = null;
 
         private int _receivedPoints = 0;
         private double _timeWindow = 30.0;
@@ -111,7 +109,7 @@ namespace ESP32StreamManager
             _statusUpdateTimer = new System.Windows.Forms.Timer();
             _statusUpdateTimer.Interval = 5000;
             _statusUpdateTimer.Tick += StatusUpdateTimer_Tick;
-            
+
             if (File.Exists("app.ico"))
             {
                 Icon = new Icon("app.ico");
@@ -128,16 +126,15 @@ namespace ESP32StreamManager
             var topLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                ColumnCount = 5,
+                ColumnCount = 4,
                 RowCount = 1,
                 BackColor = AppTheme.MainBackColor
             };
 
-            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28));
-            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18));
-            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18));
-            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18));
-            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18));
+            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34));
+            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
+            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
+            topLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22));
 
             var titleCard = UiFactory.CreateRoundedPanel(
                 20,
@@ -168,13 +165,11 @@ namespace ESP32StreamManager
             var deviceCard = UiFactory.CreateStatusCard("Устройство", "Не проверено", out lblDeviceValue);
             var ipCard = UiFactory.CreateStatusCard("IP-адрес", "Не задан", out lblIpValue);
             var qualityCard = UiFactory.CreateStatusCard("Качество", "Не определено", out lblQualityValue);
-            var recordCard = UiFactory.CreateStatusCard("Запись", "00:00 | 0 точек", out lblRecordValue);
 
             topLayout.Controls.Add(titleCard, 0, 0);
             topLayout.Controls.Add(deviceCard, 1, 0);
             topLayout.Controls.Add(ipCard, 2, 0);
             topLayout.Controls.Add(qualityCard, 3, 0);
-            topLayout.Controls.Add(recordCard, 4, 0);
 
             panelTop.Controls.Add(topLayout);
 
@@ -226,17 +221,17 @@ namespace ESP32StreamManager
 
             controlsLayout.RowStyles.Clear();
 
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44)); // Заголовок
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50)); // Подсказка
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Найти
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Wi-Fi
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Хот-спот
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74)); // Старт
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74)); // Стоп
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Очистить
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Сохранить
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Предсказания
-            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66)); // Настройки
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 74));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+            controlsLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
             controlsLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var lblControl = new Label
@@ -537,8 +532,8 @@ namespace ESP32StreamManager
             btnStopStream.Enabled = isStreaming;
 
             btnStartStream.Text = ecgData.Count > 0
-        ? "▶  ПРОДОЛЖИТЬ ЗАПИСЬ"
-        : "▶  НАЧАТЬ ЗАПИСЬ";
+                ? "▶  ПРОДОЛЖИТЬ ЗАПИСЬ"
+                : "▶  НАЧАТЬ ЗАПИСЬ";
 
             btnSaveRecord.Enabled = ecgData.Count > 0;
 
@@ -790,7 +785,6 @@ namespace ESP32StreamManager
                     if (_segmenter.AddSample((float)value, out var currentPrediction))
                     {
                         prediction = currentPrediction;
-                        Log($"ML: {prediction.Type}, p={prediction.Probability:0.000}", "INFO", deviceName);
                     }
                 }
 
@@ -805,7 +799,7 @@ namespace ESP32StreamManager
             }
         }
 
-        private void UpdatePlotData(string deviceName, double timestamp,double value, EcgPrediction prediction)
+        private void UpdatePlotData(string deviceName, double timestamp, double value, EcgPrediction prediction)
         {
             try
             {
@@ -829,7 +823,6 @@ namespace ESP32StreamManager
 
                 _receivedPoints++;
 
-                UpdateRecordingInfo();
                 UpdateSignalQuality();
 
                 if (plotEcg?.Model?.Axes != null && plotEcg.Model.Axes.Count > 1)
@@ -855,7 +848,15 @@ namespace ESP32StreamManager
             if (prediction.Type == SegmentType.Background)
                 return;
 
-            if (prediction.Probability < 0.55f)
+            float minProbability = prediction.Type switch
+            {
+                SegmentType.Spike => 0.15f,
+                SegmentType.Qrs => 0.35f,
+                SegmentType.QrsAfterSpike => 0.35f,
+                _ => 0.55f
+            };
+
+            if (prediction.Probability < minProbability)
                 return;
 
             var type = _predictionState.Update(timestamp, prediction);
@@ -868,7 +869,6 @@ namespace ESP32StreamManager
                 _ => lblStatus.Text
             };
         }
-
         private void TrimPredictionSeries(double timestamp)
         {
             double minTime = Math.Max(0, timestamp - _timeWindow);
@@ -879,24 +879,13 @@ namespace ESP32StreamManager
 
             _predictionState?.Trim(minTime);
         }
+
         private void RemoveOldPoints(ScatterSeries series, double minTime)
         {
             while (series.Points.Count > 0 && series.Points[0].X < minTime)
             {
                 series.Points.RemoveAt(0);
             }
-        }
-
-        private void UpdateRecordingInfo()
-        {
-            if (_recordingStartTime == null)
-            {
-                lblRecordValue.Text = $"00:00 | {_receivedPoints} точек";
-                return;
-            }
-
-            TimeSpan elapsed = DateTime.Now - _recordingStartTime.Value;
-            lblRecordValue.Text = $"{elapsed:mm\\:ss} | {_receivedPoints} точек";
         }
 
         private void UpdateSignalQuality()
@@ -965,7 +954,6 @@ namespace ESP32StreamManager
                 _plotStartTime = DateTime.Now;
                 _receivedPoints = 0;
 
-                lblRecordValue.Text = "00:00 | 0 точек";
                 lblQualityValue.Text = "Не определено";
                 lblQualityValue.ForeColor = AppTheme.MutedTextColor;
 
@@ -1071,7 +1059,7 @@ namespace ESP32StreamManager
                             MessageBoxIcon.Information);
                     }));
 
-                    Thread.Sleep(7000);
+                    Thread.Sleep(2000);
                     FindAndSaveEspInNetwork(device);
                 }
                 else
@@ -1120,8 +1108,6 @@ namespace ESP32StreamManager
                 _receivedPoints = 0;
             }
 
-            _recordingStartTime = DateTime.Now;
-
             var worker = new StreamWorker(this, device, ip);
 
             worker.DataReceived += (devName, data) =>
@@ -1161,10 +1147,7 @@ namespace ESP32StreamManager
 
             worker.Stop();
 
-            _recordingStartTime = null;
-            lblRecordValue.Text = $"Остановлена | {_receivedPoints} точек";
-
-            Log($"Регистрация остановлена: {device.Name}", "SUCCESS", device.Name);
+            Log($"Запись остановлена. Получено точек: {_receivedPoints}", "INFO", device.Name);
             UpdateUI();
         }
 
@@ -1215,7 +1198,6 @@ namespace ESP32StreamManager
 
             return ips.Distinct().ToList();
         }
-
 
         private bool FindAndSaveEspInNetwork(EspDevice device)
         {
