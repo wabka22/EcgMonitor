@@ -654,8 +654,10 @@ namespace ESP32StreamManager
                     {
                         HotspotSsid = "MyHomeWiFi",
                         HotspotPassword = "mypassword123",
+                        HotspotSubnet = "192.168.137",
+
                         EspDevices = new List<EspDevice>
-                        {
+    {
                             new EspDevice
                             {
                                 Name = "ESP32_ECG",
@@ -663,11 +665,11 @@ namespace ESP32StreamManager
                                 ApPassword = "12345678",
                                 ApIp = "192.168.4.1",
                                 Port = 8888,
-                                HotspotIp = "192.168.137.191",
+                                HotspotIp = "",
                                 MacAddress = "c4:de:e2:19:2b:6c"
                             }
                         }
-                    };
+                     };
 
                     SaveConfig();
                     Log($"Создан новый файл конфигурации: {ConfigFile}", "INFO");
@@ -859,16 +861,9 @@ namespace ESP32StreamManager
             if (prediction.Probability < minProbability)
                 return;
 
-            var type = _predictionState.Update(timestamp, prediction);
-
-            lblStatus.Text = type switch
-            {
-                SegmentType.Qrs => $"Распознано: QRS | {prediction.Probability:0.00}",
-                SegmentType.Spike => $"Распознано: SPIKE | {prediction.Probability:0.00}",
-                SegmentType.QrsAfterSpike => $"Распознано: QRS after spike | {prediction.Probability:0.00}",
-                _ => lblStatus.Text
-            };
+            _predictionState.Update(timestamp, prediction);
         }
+
         private void TrimPredictionSeries(double timestamp)
         {
             double minTime = Math.Max(0, timestamp - _timeWindow);
@@ -1186,7 +1181,8 @@ namespace ESP32StreamManager
                 string output = process.StandardOutput.ReadToEnd();
                 process.WaitForExit();
 
-                var regex = new Regex(@"\b192\.168\.137\.\d+\b");
+                var escapedSubnet = Regex.Escape(_config.HotspotSubnet);
+                var regex = new Regex($@"\b{escapedSubnet}\.\d+\b");
 
                 foreach (Match m in regex.Matches(output))
                     ips.Add(m.Value);
@@ -1238,7 +1234,7 @@ namespace ESP32StreamManager
 
             for (int i = 1; i <= 254; i++)
             {
-                string testIp = $"192.168.137.{i}";
+                string testIp = $"{_config.HotspotSubnet}.{i}";
 
                 if (_networkManager.CheckEspAvailability(testIp, device.Port, 100))
                 {

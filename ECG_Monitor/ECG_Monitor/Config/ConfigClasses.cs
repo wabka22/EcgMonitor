@@ -3,8 +3,10 @@
     public class Config
     {
         public string HotspotSsid { get; set; } = "MyHomeWiFi";
-        public string HotspotPassword { get; set; } = "mypassword122";
-        public List<EspDevice> EspDevices { get; set; } = new List<EspDevice>();
+        public string HotspotPassword { get; set; } = "mypassword123";
+
+        public string HotspotSubnet { get; set; } = "192.168.137";
+        public List<EspDevice> EspDevices { get; set; } = new();
     }
 
     public class EspDevice
