@@ -1,4 +1,6 @@
-﻿using OxyPlot;
+﻿using System;
+using System.Collections.Generic;
+using OxyPlot;
 using OxyPlot.Annotations;
 
 namespace ESP32StreamManager.ML
@@ -14,9 +16,11 @@ namespace ESP32StreamManager.ML
         private readonly double _minQrsGapSec;
         private readonly double _minQrsAfterGapSec;
 
-        private const double QrsHalfWidth = 0.09;
+        private readonly double _qrsAfterDrawDelaySec;
+
+        private const double QrsHalfWidth = 0.40;
         private const double SpikeHalfWidth = 0.24;
-        private const double QrsAfterWidth = 0.40;
+        private const double QrsAfterWidth = 0.60;
 
         private const double MarkerGapAfterSpike = 0.015;
 
@@ -34,6 +38,16 @@ namespace ESP32StreamManager.ML
 
         private readonly List<RectangleAnnotation> _annotations = new();
 
+        private sealed class PendingMarker
+        {
+            public double Timestamp { get; init; }
+            public SegmentType Type { get; init; }
+            public double ReadyAt { get; init; }
+            public double? SpikeMarkerTime { get; init; }
+        }
+
+        private readonly List<PendingMarker> _pendingMarkers = new();
+
         public EcgPredictionState(
             PlotModel plotModel,
             double sampleRate = 500.0,
@@ -41,7 +55,8 @@ namespace ESP32StreamManager.ML
             double maxSpikeToQrsAfterDelaySec = 1.05,
             double minSpikeGapSec = 0.20,
             double minQrsGapSec = 0.20,
-            double minQrsAfterGapSec = 0.25)
+            double minQrsAfterGapSec = 0.25,
+            double qrsAfterDrawDelaySec = 0.50)
         {
             _plotModel = plotModel;
 
@@ -51,10 +66,14 @@ namespace ESP32StreamManager.ML
             _minSpikeGapSec = minSpikeGapSec;
             _minQrsGapSec = minQrsGapSec;
             _minQrsAfterGapSec = minQrsAfterGapSec;
+
+            _qrsAfterDrawDelaySec = qrsAfterDrawDelaySec;
         }
 
         public SegmentType Update(double timestamp, EcgPrediction prediction)
         {
+            FlushPendingMarkers(timestamp);
+
             var type = prediction.Type;
 
             if (type == SegmentType.Background)
@@ -83,7 +102,6 @@ namespace ESP32StreamManager.ML
                 }
                 else
                 {
-
                     if (type == SegmentType.Qrs || type == SegmentType.QrsAfterSpike)
                     {
                         if (dt < _minSpikeToQrsAfterDelaySec)
@@ -92,7 +110,7 @@ namespace ESP32StreamManager.ML
                         if (IsTooClose(_lastQrsAfterMarkerTime, timestamp, _minQrsAfterGapSec))
                             return SegmentType.Background;
 
-                        AddMarker(timestamp, SegmentType.QrsAfterSpike);
+                        ScheduleMarker(timestamp, SegmentType.QrsAfterSpike);
                         _lastQrsAfterMarkerTime = timestamp;
 
                         return SegmentType.QrsAfterSpike;
@@ -102,10 +120,12 @@ namespace ESP32StreamManager.ML
                 }
             }
 
-
             if (type == SegmentType.QrsAfterSpike)
             {
                 if (IsTooClose(_lastQrsMarkerTime, timestamp, _minQrsGapSec))
+                    return SegmentType.Background;
+
+                if (WouldQrsOverlapSpike(timestamp))
                     return SegmentType.Background;
 
                 AddMarker(timestamp, SegmentType.Qrs);
@@ -114,10 +134,12 @@ namespace ESP32StreamManager.ML
                 return SegmentType.Qrs;
             }
 
-
             if (type == SegmentType.Qrs)
             {
                 if (IsTooClose(_lastQrsMarkerTime, timestamp, _minQrsGapSec))
+                    return SegmentType.Background;
+
+                if (WouldQrsOverlapSpike(timestamp))
                     return SegmentType.Background;
 
                 AddMarker(timestamp, SegmentType.Qrs);
@@ -129,12 +151,67 @@ namespace ESP32StreamManager.ML
             return SegmentType.Background;
         }
 
+        public void Tick(double timestamp)
+        {
+            FlushPendingMarkers(timestamp);
+        }
+
+        private void ScheduleMarker(double timestamp, SegmentType type)
+        {
+            _pendingMarkers.Add(new PendingMarker
+            {
+                Timestamp = timestamp,
+                Type = type,
+                ReadyAt = timestamp + _qrsAfterDrawDelaySec,
+                SpikeMarkerTime = _lastSpikeMarkerTime
+            });
+        }
+
+        private void FlushPendingMarkers(double currentTimestamp)
+        {
+            for (int i = 0; i < _pendingMarkers.Count;)
+            {
+                var pending = _pendingMarkers[i];
+
+                if (currentTimestamp < pending.ReadyAt)
+                {
+                    i++;
+                    continue;
+                }
+
+                AddMarker(
+                    pending.Timestamp,
+                    pending.Type,
+                    pending.SpikeMarkerTime);
+
+                _pendingMarkers.RemoveAt(i);
+            }
+        }
+
         private static bool IsTooClose(double? lastTime, double currentTime, double minGap)
         {
             return lastTime.HasValue && (currentTime - lastTime.Value) < minGap;
         }
 
-        private void AddMarker(double timestamp, SegmentType type)
+        private bool WouldQrsOverlapSpike(double timestamp)
+        {
+            if (_lastSpikeAnnotation == null)
+                return false;
+
+            double qrsMinX = timestamp - QrsHalfWidth;
+            double qrsMaxX = timestamp + QrsHalfWidth;
+
+            double spikeMinX = _lastSpikeAnnotation.MinimumX;
+            double spikeMaxX = _lastSpikeAnnotation.MaximumX;
+
+            return qrsMinX <= spikeMaxX + MarkerGapAfterSpike &&
+                   qrsMaxX >= spikeMinX - MarkerGapAfterSpike;
+        }
+
+        private void AddMarker(
+            double timestamp,
+            SegmentType type,
+            double? spikeMarkerTimeOverride = null)
         {
             double minX;
             double maxX;
@@ -143,9 +220,11 @@ namespace ESP32StreamManager.ML
             {
                 double startX = timestamp;
 
-                if (_lastSpikeMarkerTime.HasValue)
+                double? spikeMarkerTime = spikeMarkerTimeOverride ?? _lastSpikeMarkerTime;
+
+                if (spikeMarkerTime.HasValue)
                 {
-                    double spikeRightEdge = _lastSpikeMarkerTime.Value + SpikeHalfWidth;
+                    double spikeRightEdge = spikeMarkerTime.Value + SpikeHalfWidth;
                     startX = Math.Max(startX, spikeRightEdge + MarkerGapAfterSpike);
                 }
 
@@ -239,6 +318,8 @@ namespace ESP32StreamManager.ML
 
         public void Trim(double minTime)
         {
+            _pendingMarkers.RemoveAll(p => p.Timestamp < minTime);
+
             for (int i = _annotations.Count - 1; i >= 0; i--)
             {
                 if (_annotations[i].MaximumX < minTime)
@@ -266,6 +347,7 @@ namespace ESP32StreamManager.ML
                 _plotModel.Annotations.Remove(annotation);
 
             _annotations.Clear();
+            _pendingMarkers.Clear();
 
             _lastSpikeTime = null;
             _lastSpikeMarkerTime = null;

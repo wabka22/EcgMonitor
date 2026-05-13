@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <math.h>
 #include "ecg_data.h"
+#include "ecg_data_with_more_spikes.h"
 
 Preferences prefs;
 WiFiServer server(8888);
@@ -237,7 +238,7 @@ void streamEcgTick() {
   if (now - lastSampleTime < SAMPLE_INTERVAL) return;
   lastSampleTime = now;
 
-  int16_t ecgValue = pgm_read_word(&ECG_DATA[ecgLeadIndex][ecgSampleIndex]);
+  int16_t ecgValue = pgm_read_word(&ECG_DATA_EXTRA[ecgLeadIndex][ecgSampleIndex]);
 
   activeClient.println(ecgValue);
 

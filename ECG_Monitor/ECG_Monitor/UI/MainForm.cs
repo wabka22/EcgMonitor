@@ -816,6 +816,8 @@ namespace ESP32StreamManager
                     ecgSeries.Points.AddRange(ecgData);
                 }
 
+                _predictionState?.Tick(timestamp);
+
                 if (prediction != null)
                 {
                     AddPredictionPoint(timestamp, value, prediction);
